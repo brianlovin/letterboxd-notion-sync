@@ -2,21 +2,23 @@
 
 # Letterboxd → Notion
 
-[![CI](https://github.com/brianlovin/letterboxd-notion-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/brianlovin/letterboxd-notion-sync/actions/workflows/ci.yml)
-
-Sync your Letterboxd diary and watchlist into a Notion database — hourly, with poster covers and rich metadata (director, cast, runtime, genres, IMDb/TMDB links). Runs in Notion's cloud, no server or cron required.
+Sync your Letterboxd diary and watchlist into a Notion database. Pages are enriched with poster covers and metadata (director, cast, runtime, genres, IMDb/TMDB links). Runs on [Notion Workers](https://www.notion.so/developers/workers), no server or cron required.
 
 ## Setup
 
-Needs [Node 22+](https://nodejs.org).
+```bash
+curl -fsSL https://ntn.dev | bash
+```
 
 ```bash
-curl -fsSL https://ntn.dev | bash                              # Notion CLI (one-time)
 git clone https://github.com/brianlovin/letterboxd-notion-sync.git
+```
+
+```bash
 cd letterboxd-notion-sync && npm install && npm run setup
 ```
 
-Setup asks for a Notion [Personal Access Token](https://www.notion.so/developers/tokens) and your Letterboxd username, creates a `🎬 Films` database with three views (Watched / Watchlist / All Films), deploys the worker, and triggers the first sync. Open the database to watch films arrive.
+Setup asks for a Notion [Personal Access Token](https://www.notion.so/developers/tokens) and your Letterboxd username, creates a `🎬 Films` database with three views (Watched / Watchlist / All Films), deploys the worker, and triggers the first sync.
 
 ### Bring in your history (optional)
 
@@ -24,13 +26,9 @@ The hourly sync only sees ~50 recent diary entries. To import everything you've 
 
 ```bash
 # Export at https://letterboxd.com/settings/data/, unzip, then:
-npm run import-csv -- ~/Downloads/letterboxd-yourname
+npm run import-csv -- ~/Downloads/NAME_OF_ZIP_EXPORT
 npm run backfill   # adds posters + metadata
 ```
-
-## What you get
-
-One Notion page per film, with: status (Watched/Watchlist, transitioned automatically), your rating (★★★★½) and watched date, director, cast (top 5), genres, country, studio, runtime (rendered as `2h 30m`), tagline, plot, Letterboxd community rating, IMDb/TMDB links, and the film's poster as the page cover. A separate `🎬 Letterboxd sync runs` database logs every sync for debugging.
 
 ## Maintenance
 
