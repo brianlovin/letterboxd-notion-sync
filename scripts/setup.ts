@@ -14,6 +14,7 @@ import * as fs from "node:fs";
 import * as readline from "node:readline/promises";
 
 import { NOTION_VERSION } from "./lib";
+import { SCHEMA, viewPayloads } from "../src/films-schema";
 
 const FORCE      = process.argv.includes("--force");
 const SKIP_DEPLOY = process.argv.includes("--no-deploy"); // useful for testing
@@ -33,6 +34,17 @@ function info(s: string)    { console.log(`  ${s}`); }
 function ok(s: string)      { console.log(`  ${C.green("✓")} ${s}`); }
 function fail(s: string)    { console.log(`  ${C.red("✗")} ${s}`); }
 function bail(s: string): never { console.error(`\n${C.red("✗")} ${s}`); process.exit(1); }
+
+// Extract a UUID from a Notion URL or accept a bare UUID. Notion URLs embed
+// the id as the last 32-hex-char segment, optionally prefixed by human text
+// and a hyphen.
+function extractNotionId(input: string): string | null {
+	const m = input.trim().match(/([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+	if (!m) return null;
+	const hex = m[1].replace(/-/g, "").toLowerCase();
+	if (hex.length !== 32) return null;
+	return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+}
 
 // ---------- Prompts --------------------------------------------------------
 
@@ -97,92 +109,6 @@ function runNtn(args: string[], { capture = false }: { capture?: boolean } = {})
 		bail(`\`ntn ${args.join(" ")}\` failed (exit ${r.status}). See the output above.`);
 	}
 	return capture ? r.stdout ?? "" : null;
-}
-
-// ---------- Schema (Films database) ---------------------------------------
-
-const RATING_OPTIONS = [
-	{ name: "★★★★★", color: "yellow" as const },
-	{ name: "★★★★½", color: "yellow" as const },
-	{ name: "★★★★",  color: "yellow" as const },
-	{ name: "★★★½",  color: "yellow" as const },
-	{ name: "★★★",   color: "yellow" as const },
-	{ name: "★★½",   color: "yellow" as const },
-	{ name: "★★",    color: "yellow" as const },
-	{ name: "★½",    color: "yellow" as const },
-	{ name: "★",     color: "yellow" as const },
-	{ name: "½",     color: "yellow" as const },
-];
-
-const STATUS_OPTIONS = [
-	{ name: "Watched",   color: "green" as const },
-	{ name: "Watchlist", color: "blue"  as const },
-];
-
-// Renders "Runtime minutes" as e.g. "2h 30m" / "45m" / "2h" / "".
-const RUNTIME_FORMULA =
-	'if(empty(prop("Runtime minutes")), "", ' +
-		'if(prop("Runtime minutes") < 60, format(prop("Runtime minutes")) + "m", ' +
-			'if(prop("Runtime minutes") % 60 == 0, format(floor(prop("Runtime minutes") / 60)) + "h", ' +
-				'format(floor(prop("Runtime minutes") / 60)) + "h " + format(prop("Runtime minutes") % 60) + "m")))';
-
-const SCHEMA = {
-	Title:                 { title: {} },
-	Year:                  { number: { format: "number" } },
-	Status:                { select: { options: STATUS_OPTIONS } },
-	Rating:                { select: { options: RATING_OPTIONS } },
-	"Watched Date":        { date: {} },
-	"Logged Date":         { date: {} },
-	Rewatch:               { checkbox: {} },
-	Review:                { rich_text: {} },
-	Tags:                  { rich_text: {} },
-	"Letterboxd URI":      { url: {} },
-	Director:              { multi_select: { options: [] } },
-	Cast:                  { multi_select: { options: [] } },
-	Genres:                { multi_select: { options: [] } },
-	Country:               { multi_select: { options: [] } },
-	Studio:                { multi_select: { options: [] } },
-	"Runtime minutes":     { number: { format: "number" } },
-	Runtime:               { formula: { expression: RUNTIME_FORMULA } },
-	"Letterboxd Rating":   { number: { format: "number" } },
-	"Rating Count":        { number: { format: "number_with_commas" } },
-	Tagline:               { rich_text: {} },
-	Plot:                  { rich_text: {} },
-	IMDb:                  { url: {} },
-	TMDB:                  { url: {} },
-	"Letterboxd Film ID":  { rich_text: {} },
-};
-
-function viewPayloads(databaseId: string, dataSourceId: string) {
-	const galleryConfig = {
-		type:         "gallery",
-		cover:        { type: "page_cover" },
-		cover_size:   "medium",
-		cover_aspect: "cover",
-		card_layout:  "compact",
-	};
-	return [
-		{
-			database_id: databaseId, data_source_id: dataSourceId,
-			name: "Watched", type: "gallery",
-			configuration: galleryConfig,
-			filter: { property: "Status", select: { equals: "Watched" } },
-			sorts: [{ property: "Watched Date", direction: "descending" }],
-		},
-		{
-			database_id: databaseId, data_source_id: dataSourceId,
-			name: "Watchlist", type: "gallery",
-			configuration: galleryConfig,
-			filter: { property: "Status", select: { equals: "Watchlist" } },
-			sorts: [{ property: "Logged Date", direction: "descending" }],
-		},
-		{
-			database_id: databaseId, data_source_id: dataSourceId,
-			name: "All Films", type: "table",
-			configuration: { type: "table" },
-			sorts: [{ property: "Watched Date", direction: "descending" }],
-		},
-	];
 }
 
 // ---------- .env helpers ---------------------------------------------------
@@ -258,10 +184,20 @@ async function main() {
 
 	const notion = new Client({ auth: token, notionVersion: NOTION_VERSION });
 
+	// Detect token type. Both PATs and internal integrations come back as
+	// `type: "bot"`; the differentiator is `bot.owner.type`:
+	//   • PAT             → bot.owner.type === "user"  (acts as a person;
+	//                       can create at workspace root)
+	//   • Internal integ. → bot.owner.type === "workspace"  (can't create
+	//                       at workspace root; needs a parent page)
+	let tokenIsPat = false;
 	try {
 		const me = await notion.request<any>({ path: "users/me", method: "get" });
-		const wsName = me?.bot?.workspace_name ?? me?.name ?? "your workspace";
-		ok(`Authenticated as ${C.bold(wsName)}`);
+		tokenIsPat = me?.bot?.owner?.type === "user";
+		const who = tokenIsPat
+			? (me?.bot?.owner?.user?.name ?? me?.name ?? "your account")
+			: (me?.bot?.workspace_name ?? me?.name ?? "your workspace");
+		ok(`Authenticated as ${C.bold(who)}${tokenIsPat ? "" : C.dim(" (integration token)")}`);
 	} catch (e: any) {
 		bail(`Notion didn't accept that token (${e.message}). Try generating a new one.`);
 	}
@@ -298,12 +234,36 @@ async function main() {
 			bail(`.env has FILMS_DATABASE_ID=${databaseId} but Notion can't find it. Run with --force to start over.`);
 		}
 	} else {
-		// Fresh: create at workspace root with the full schema.
+		// Pick a parent. PATs can create at the workspace root; integration
+		// tokens have to create as a child of a page they're already shared
+		// with, so we prompt for one.
+		let parent: any;
+		if (tokenIsPat) {
+			parent = { type: "workspace", workspace: true };
+		} else {
+			console.log(C.dim(`  Your integration can't create databases at the workspace root.`));
+			console.log(C.dim(`  Open any page in your workspace, click ⋯ → Connections → Add`));
+			console.log(C.dim(`  your integration, then paste the page URL here.`));
+			let parentPageId: string | null = null;
+			while (!parentPageId) {
+				const raw = await prompt(rl, "Parent page URL");
+				parentPageId = extractNotionId(raw);
+				if (!parentPageId) { fail("Couldn't find a Notion ID in that. Try again."); continue; }
+				try {
+					await notion.request({ path: `pages/${parentPageId}`, method: "get" });
+				} catch (e: any) {
+					fail(`Can't read that page (${e.message}). Did you add the integration via Connections?`);
+					parentPageId = null;
+				}
+			}
+			parent = { type: "page_id", page_id: parentPageId };
+		}
+
 		const db = await notion.request<any>({
 			path: "databases", method: "post",
 			body: {
-				parent: { type: "workspace", workspace: true },
-				title:  [{ type: "text", text: { content: "🎬 Films" } }],
+				parent,
+				title: [{ type: "text", text: { content: "🎬 Films" } }],
 				initial_data_source: { properties: SCHEMA },
 			},
 		});

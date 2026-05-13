@@ -96,12 +96,19 @@ The Notes field on the most recent row of the `🎬 Letterboxd sync runs` databa
 
 - `npm run check` — type-check (no emit)
 - `npm test` — unit tests against fixtures under `tests/fixtures/`. Pure functions only; no network or Notion calls.
-- For changes that touch the worker or any Notion-API side effect, also validate end-to-end:
-	1. `npm run setup` against a throwaway parent page
-	2. `npm run backfill -- --limit 5 --dry-run` after import
-	3. `ntn workers sync trigger letterboxdSync --preview` after deploy
+- `RUN_E2E=1 npm run test:e2e` — end-to-end tests against a real Notion workspace and a live Letterboxd profile. Requires `NOTION_API_TOKEN` (PAT recommended; an integration token also works but needs `E2E_PARENT_PAGE_ID` set to a page the integration has been added to). Tests create sandbox DBs and trash them when done; one workspace-root parent page may be created on first run (and can't be auto-deleted, so reuse its ID via `E2E_PARENT_PAGE_ID` on subsequent runs).
 
-CI runs `npm run check` + `npm test` on every push and PR (`.github/workflows/ci.yml`).
+The E2E suite covers:
+
+- The Films schema in `src/films-schema.ts` is accepted by Notion's API (every property has the expected type).
+- The Runtime formula renders correctly for `162`, `120`, `45`, and `null`.
+- Views API works: create, list, delete.
+- The `add-properties` migration path (legacy `Runtime` number → renamed to `Runtime minutes` + new `Runtime` formula).
+- The Letterboxd parsers (`parseFilmPage`, `parseDiaryRss`, `parseWatchlistHtml`) work against live HTML/RSS — catches format drift the fixtures can't.
+
+For things E2E doesn't cover (the `ntn workers create/env push/deploy` shell-outs in `scripts/setup.ts`), validate manually by running `npm run setup` against a sandbox workspace.
+
+CI runs `npm run check` + `npm test` on every push and PR (`.github/workflows/ci.yml`). E2E does NOT run in CI by default — would need a PAT in GitHub secrets.
 
 ## Useful docs
 

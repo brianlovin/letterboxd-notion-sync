@@ -19,13 +19,7 @@
  */
 
 import { notionClient, requireEnv, resolveDataSourceId } from "./lib";
-
-// Renders "Runtime minutes" as "2h 30m" / "45m" / "2h" / "" (empty).
-const RUNTIME_FORMULA_EXPRESSION =
-	'if(empty(prop("Runtime minutes")), "", ' +
-		'if(prop("Runtime minutes") < 60, format(prop("Runtime minutes")) + "m", ' +
-			'if(prop("Runtime minutes") % 60 == 0, format(floor(prop("Runtime minutes") / 60)) + "h", ' +
-				'format(floor(prop("Runtime minutes") / 60)) + "h " + format(prop("Runtime minutes") % 60) + "m")))';
+import { RUNTIME_FORMULA } from "../src/films-schema";
 
 const NEW_PROPERTIES: Record<string, any> = {
 	Director:             { multi_select: {} },
@@ -34,7 +28,7 @@ const NEW_PROPERTIES: Record<string, any> = {
 	Country:              { multi_select: {} },
 	Studio:               { multi_select: {} },
 	"Runtime minutes":    { number: { format: "number" } },
-	Runtime:              { formula: { expression: RUNTIME_FORMULA_EXPRESSION } },
+	Runtime:              { formula: { expression: RUNTIME_FORMULA } },
 	"Letterboxd Rating":  { number: { format: "number" } },
 	"Rating Count":       { number: { format: "number_with_commas" } },
 	Tagline:              { rich_text: {} },
