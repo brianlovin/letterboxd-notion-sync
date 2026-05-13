@@ -96,6 +96,10 @@ interface Sources {
 }
 
 function resolveSources(input: string): Sources {
+	if (!fs.existsSync(input)) {
+		console.error(`Path doesn't exist: ${input}`);
+		process.exit(1);
+	}
 	const stat = fs.statSync(input);
 	if (stat.isDirectory()) {
 		const find = (n: string) => {

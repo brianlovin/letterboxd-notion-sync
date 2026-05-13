@@ -95,8 +95,10 @@ function hasNtn(): boolean {
 }
 
 function ntnAuthed(): boolean {
+	// `ntn doctor` writes its checklist to stderr, not stdout.
 	const r = spawnSync("ntn", ["doctor"], { encoding: "utf8" });
-	return r.status === 0 && /Token valid\s+✔/.test(r.stdout ?? "");
+	const out = (r.stdout ?? "") + (r.stderr ?? "");
+	return r.status === 0 && /Token valid\s+✔/.test(out);
 }
 
 function runNtn(args: string[], { capture = false }: { capture?: boolean } = {}): string | null {
