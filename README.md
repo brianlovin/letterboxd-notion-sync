@@ -23,7 +23,7 @@ npm run setup
 
 The setup script will:
 
-1. Ask you to paste a **Personal Access Token** from <https://www.notion.so/developers/tokens> (click _New personal access token_ → tick Read/Insert/Update → copy)
+1. Ask you to paste a **Personal Access Token** from <https://www.notion.so/developers/tokens> (click _New personal access token_, tick both **Notion API** and **Workers**, click Create, copy the token)
 2. Ask for your Letterboxd username
 3. Create a `🎬 Films` database at the root of your Notion workspace (with three views: Watched, Watchlist, All Films)
 4. Deploy the sync worker — runs hourly from then on

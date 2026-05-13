@@ -177,7 +177,7 @@ async function main() {
 	step(`Step 1 of 4 — ${C.bold("Notion access token")}`);
 	console.log(C.dim(`  Create a Personal Access Token at:`));
 	console.log(C.dim(`    https://www.notion.so/developers/tokens`));
-	console.log(C.dim(`  Click "New personal access token", give it Read/Insert/Update content, copy.`));
+	console.log(C.dim(`  Click "New personal access token", tick both Notion API and Workers, Create, copy.`));
 	let token = existing.NOTION_API_TOKEN ?? "";
 	if (!token) token = await promptHidden(rl, "Token");
 	if (!token.startsWith("ntn_")) bail(`Token doesn't look right — should start with "ntn_".`);
