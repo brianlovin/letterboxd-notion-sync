@@ -89,27 +89,20 @@ The simplest option is a **Personal Access Token (PAT)** — it acts as you, so 
 
 PATs expire after one year. When yours expires, generate a new one and run `ntn workers env set NOTION_API_TOKEN=ntn_...`.
 
-> **Alternative:** an [internal integration token](https://www.notion.so/profile/integrations/internal) works too, but you'll need to share the Films database and any parent page with that integration via each page's `⋯` → `Connections` menu. PATs skip this step.
+> **Alternative:** an [internal integration token](https://www.notion.so/profile/integrations/internal) works too, but you'll need to share the Films database with that integration after setup creates it (`⋯` → `Connections` → `Add connections`). PATs skip this step.
 
-### 2. Pick a parent page in your workspace
+### 2. Run `npm run setup`
 
-The setup script will create a new database inside an existing page. Open any page in your workspace and copy its URL.
+The script will prompt you for the Notion token and your Letterboxd username, then:
 
-(If you're using an internal integration instead of a PAT, also add the integration to that page via `⋯` → `Connections` → `Add connections` before continuing.)
+- Create a `🎬 Films` database at the **root of your workspace** with all 23 properties pre-configured
+- Create three views (Watched gallery, Watchlist gallery, All Films table)
+- Delete the empty default view Notion auto-creates
+- Write `.env` with everything the worker and helper scripts need
 
-### 3. Run `npm run setup`
+(You can drag the database anywhere in your workspace afterwards.)
 
-The script will prompt you for:
-- Notion integration token
-- Letterboxd username
-- Parent page URL
-
-It then:
-- Creates a `🎬 Films` database with all 23 properties pre-configured
-- Creates three views (Watched gallery, Watchlist gallery, All Films table)
-- Writes `.env` with everything the worker and helper scripts need
-
-### 4. Deploy the worker
+### 3. Deploy the worker
 
 ```bash
 ntn workers env push   # uploads .env to the worker's secret store
@@ -118,7 +111,7 @@ ntn workers deploy
 
 On deploy, the worker also creates its own `🎬 Letterboxd sync runs` audit database in your workspace.
 
-### 5. (Optional but recommended) Seed history from your CSV export
+### 4. (Optional but recommended) Seed history from your CSV export
 
 Letterboxd doesn't expose your full history via RSS — only the most recent ~50 diary entries. If you want everything from day one:
 
@@ -128,7 +121,7 @@ Letterboxd doesn't expose your full history via RSS — only the most recent ~50
 
 This creates one Notion page per row from `diary.csv` and `watchlist.csv`, with rating, watch date, rewatch flag, and tags filled in. It does *not* set posters or metadata — that's the next step.
 
-### 6. (Optional) Enrich with covers + director + cast + etc.
+### 5. (Optional) Enrich with covers + director + cast + etc.
 
 ```bash
 npm run backfill

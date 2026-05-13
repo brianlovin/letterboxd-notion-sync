@@ -5,13 +5,14 @@
  *
  * What this does
  * ──────────────
- *   1. Prompts for your Notion integration token, Letterboxd username, and
- *      a parent page ID in your workspace where the Films database should
- *      live.
- *   2. Creates the Films database with the full property schema.
- *   3. Creates three views (Watched, Watchlist, All Films) via the Views
- *      API — gallery layouts with poster covers, plus a table for browsing.
- *   4. Writes everything to `.env`.
+ *   1. Prompts for a Notion API token and your Letterboxd username.
+ *   2. Creates a "🎬 Films" database at the root of your workspace with the
+ *      full property schema.
+ *   3. Creates three views (Watched, Watchlist, All Films) — gallery
+ *      layouts for the first two, table for the third.
+ *   4. Deletes the empty default view that Notion creates with every new
+ *      database, so users only see our three.
+ *   5. Writes everything to `.env`.
  *
  * Idempotency
  * ───────────
@@ -24,8 +25,7 @@ import { Client } from "@notionhq/client";
 import * as fs from "node:fs";
 import * as readline from "node:readline/promises";
 
-// Notion's data_sources + views endpoints require this version.
-const NOTION_VERSION = "2025-09-03";
+import { NOTION_VERSION } from "./lib";
 
 // ---------- CLI ------------------------------------------------------------
 
@@ -47,19 +47,6 @@ function bail(msg: string): never {
 function info(msg: string)    { console.log(`  ${msg}`); }
 function step(msg: string)    { console.log(`\n▸ ${msg}`); }
 function success(msg: string) { console.log(`✓ ${msg}`); }
-
-// Extract a UUID from a Notion URL or accept a bare UUID. Notion page URLs
-// embed the page id as the last 32-hex-char segment, optionally prefixed by
-// human text and a hyphen.
-function extractNotionId(input: string): string | null {
-	const cleaned = input.trim();
-	if (!cleaned) return null;
-	const m = cleaned.match(/([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
-	if (!m) return null;
-	const hex = m[1].replace(/-/g, "").toLowerCase();
-	if (hex.length !== 32) return null;
-	return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
-}
 
 // ---------- Schema ---------------------------------------------------------
 
@@ -133,11 +120,11 @@ function viewPayloads(databaseId: string, dataSourceId: string) {
 			name:           "Watched",
 			type:           "gallery",
 			configuration: {
-				type:        "gallery",
-				cover:       { type: "page_cover" },
-				cover_size:  "medium",
+				type:         "gallery",
+				cover:        { type: "page_cover" },
+				cover_size:   "medium",
 				cover_aspect: "cover",
-				card_layout: "compact",
+				card_layout:  "compact",
 			},
 			filter: {
 				property: "Status",
@@ -152,11 +139,11 @@ function viewPayloads(databaseId: string, dataSourceId: string) {
 			name:           "Watchlist",
 			type:           "gallery",
 			configuration: {
-				type:        "gallery",
-				cover:       { type: "page_cover" },
-				cover_size:  "medium",
+				type:         "gallery",
+				cover:        { type: "page_cover" },
+				cover_size:   "medium",
 				cover_aspect: "cover",
-				card_layout: "compact",
+				card_layout:  "compact",
 			},
 			filter: {
 				property: "Status",
@@ -170,8 +157,8 @@ function viewPayloads(databaseId: string, dataSourceId: string) {
 			data_source_id: dataSourceId,
 			name:           "All Films",
 			type:           "table",
-			configuration: { type: "table" },
-			sorts: [{ property: "Watched Date", direction: "descending" }],
+			configuration:  { type: "table" },
+			sorts:          [{ property: "Watched Date", direction: "descending" }],
 		},
 	];
 }
@@ -190,11 +177,11 @@ async function main() {
 	console.log("Letterboxd → Notion setup");
 	console.log("=========================");
 	console.log();
-	console.log("This script will create a Films database in your Notion workspace,");
-	console.log("add three views (Watched, Watchlist, All Films), and write a .env");
-	console.log("file with everything the worker and helper scripts need.");
+	console.log("This script will create a Films database at the root of your Notion");
+	console.log("workspace, add three views (Watched, Watchlist, All Films), and write");
+	console.log("a .env file with everything the worker and helper scripts need.");
 
-	step("Step 1 / 4 — Notion API token");
+	step("Step 1 / 3 — Notion API token");
 	console.log("  Easiest: create a Personal Access Token (PAT). PATs act as you,");
 	console.log("  so the worker can read/write any page you can — no per-page sharing.");
 	console.log("    https://www.notion.so/developers/tokens");
@@ -203,7 +190,7 @@ async function main() {
 	console.log();
 	console.log("  (Alternative: an internal integration token from");
 	console.log("   notion.so/profile/integrations/internal also works, but you'll have");
-	console.log("   to share the Films DB and parent page with that integration.)");
+	console.log("   to share the Films DB with that integration after it's created.)");
 	const token = await prompt(rl, "  NOTION_API_TOKEN", existing.NOTION_API_TOKEN);
 	if (!token.startsWith("ntn_")) bail(`Token doesn't look right (should start with "ntn_")`);
 
@@ -217,62 +204,62 @@ async function main() {
 		bail(`Token failed: ${e.message}`);
 	}
 
-	step("Step 2 / 4 — Letterboxd username");
+	step("Step 2 / 3 — Letterboxd username");
 	console.log("  Your Letterboxd profile is at letterboxd.com/USERNAME.");
 	const letterboxdUser = await prompt(rl, "  LETTERBOXD_USER", existing.LETTERBOXD_USER);
 	if (!letterboxdUser) bail("Letterboxd username is required");
 
-	step("Step 3 / 4 — Parent page");
-	console.log("  Pick a page in your workspace that will hold the Films database.");
-	console.log("  Paste the page URL or page ID:");
-	let parentPageId: string | null = null;
-	while (!parentPageId) {
-		const raw = await prompt(rl, "  Parent page URL/ID");
-		parentPageId = extractNotionId(raw);
-		if (!parentPageId) console.log("  ✗ Couldn't find a Notion ID in that. Try again.");
-	}
+	step("Step 3 / 3 — Creating database + views");
 
-	// Verify the token can read the page. For a PAT this just checks you own
-	// (or have access to) the page; for an integration token, this also
-	// confirms you remembered to share via Connections.
-	try {
-		await notion.request({ path: `pages/${parentPageId}`, method: "get" });
-		success(`Parent page is accessible`);
-	} catch (e: any) {
-		bail(
-			`Can't read that page (${e.message}). ` +
-			`If you used an integration token, make sure you added the integration ` +
-			`via the page's Connections menu. PATs don't need that step.`,
-		);
-	}
-
-	step("Step 4 / 4 — Creating database + views");
-
-	// Create the database.
+	// Create the database at the workspace root. The post-2025-09 API wraps
+	// the property schema under `initial_data_source`. Notion auto-creates a
+	// default view alongside the data source; we'll list and delete it after
+	// creating our three custom views.
 	const db = await notion.request<any>({
 		path: "databases",
 		method: "post",
 		body: {
-			parent: { type: "page_id", page_id: parentPageId },
+			parent: { type: "workspace", workspace: true },
 			title: [{ type: "text", text: { content: "🎬 Films" } }],
-			properties: SCHEMA,
+			initial_data_source: { properties: SCHEMA },
 		},
 	});
 	const databaseId = db.id;
 	const dataSourceId: string | undefined = db.data_sources?.[0]?.id;
 	if (!dataSourceId) bail("Database created but no data source ID returned — can't create views without it.");
-	success(`Database created`);
+	success(`Database created at workspace root`);
 	info(`  database_id     = ${databaseId}`);
 	info(`  data_source_id  = ${dataSourceId}`);
 
-	// Create the three views.
+	// Create our three views.
+	const createdViewIds = new Set<string>();
 	for (const v of viewPayloads(databaseId, dataSourceId)) {
 		try {
-			await notion.request({ path: "views", method: "post", body: v });
+			const created = await notion.request<any>({ path: "views", method: "post", body: v });
+			if (created?.id) createdViewIds.add(created.id);
 			success(`View "${v.name}" created`);
 		} catch (e: any) {
 			console.log(`  ✗ View "${v.name}" failed: ${e.message}`);
 		}
+	}
+
+	// Delete any other view on the database. This is just the auto-created
+	// "Default view" that Notion makes alongside every new database.
+	try {
+		const listed = await notion.request<any>({
+			path: `views?database_id=${databaseId}`,
+			method: "get",
+		});
+		for (const v of listed?.results ?? []) {
+			if (!createdViewIds.has(v.id)) {
+				await notion.request({ path: `views/${v.id}`, method: "delete" });
+				success(`Removed default view`);
+			}
+		}
+	} catch (e: any) {
+		// Non-fatal: the user can delete it manually in the UI.
+		console.log(`  (couldn't auto-remove the default view: ${e.message}) ` +
+			`You can delete it manually in Notion.`);
 	}
 
 	// Write .env. We deliberately don't persist the data source ID — the

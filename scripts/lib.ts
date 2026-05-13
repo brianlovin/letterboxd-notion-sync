@@ -4,12 +4,12 @@
 
 import { Client } from "@notionhq/client";
 
-// All script-side Notion API calls use this version because they hit
-// /v1/data_sources and /v1/views. The worker (src/index.ts) uses the SDK's
-// default version (2022-06-28) inside `context.notion`, which is why the
-// worker writes `parent: { database_id }` but the scripts use
-// `parent: { data_source_id }`.
-export const NOTION_VERSION = "2025-09-03";
+// All script-side Notion API calls use this version. We need 2026-03-11 for
+// the Views API (list / delete) used during setup. The worker (src/index.ts)
+// continues to use the SDK's default version (2022-06-28) inside
+// `context.notion`, which is why the worker writes `parent: { database_id }`
+// but the scripts use `parent: { data_source_id }`.
+export const NOTION_VERSION = "2026-03-11";
 
 export function requireEnv(name: string): string {
 	const v = process.env[name];
