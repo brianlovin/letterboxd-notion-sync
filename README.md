@@ -1,244 +1,72 @@
-<img width="3584" height="2352" alt="Screen Shot 2026-05-13 at 13 46 36@2x" src="https://github.com/user-attachments/assets/e1e04e90-3b12-4028-9ad6-f20c5edbb5d5" />
+<img width="3584" height="2352" alt="Letterboxd to Notion sync" src="https://github.com/user-attachments/assets/e1e04e90-3b12-4028-9ad6-f20c5edbb5d5" />
 
 # Letterboxd → Notion
 
 [![CI](https://github.com/brianlovin/letterboxd-notion-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/brianlovin/letterboxd-notion-sync/actions/workflows/ci.yml)
 
-Sync your Letterboxd diary and watchlist into a Notion database, hourly, with poster covers and rich metadata (director, cast, runtime, genres, IMDb/TMDB links).
+Sync your Letterboxd diary and watchlist into a Notion database — hourly, with poster covers and rich metadata (director, cast, runtime, genres, IMDb/TMDB links). No server, no cron, no laptop staying on; the worker runs in Notion's cloud.
 
-Runs as a Notion Worker — no server, no cron, no laptop staying on.
+## Setup
 
----
-
-## What you get
-
-A Notion database with one page per film, three views (Watched / Watchlist / All Films), and:
-
-- **Status** — `Watched` or `Watchlist`, transitioned automatically when you log a film you'd added to your watchlist
-- **Rating** — your Letterboxd rating, rendered as stars (★★★★½)
-- **Watched Date**, **Logged Date**, **Rewatch**, **Review**, **Tags** — straight from your diary
-- **Director**, **Cast** (top 5), **Genres**, **Country**, **Studio** (top 3) — multi-select, so you can filter
-- **Runtime minutes** (number) and **Runtime** (formula, renders as `2h 30m`)
-- **Letterboxd Rating** (the community average), **Rating Count**
-- **Tagline**, **Plot**
-- **IMDb** and **TMDB** links
-- **Cover image** — the page cover is the film's landscape poster
-
-Plus a separate audit-log database (one row per sync run) so you can see exactly when each run happened, what got added, and any errors.
-
-## Why two databases?
-
-Notion Workers' sync API requires that the worker own a managed database. We can't directly own *your* Films database — you do — so we declare a tiny `🎬 Letterboxd sync runs` database as the audit log, and the worker writes the actual film data to your Films database via the Notion API. This is the recommended pattern in the [Workers docs](https://developers.notion.com/workers/guides/api-client).
-
-You won't usually need to look at the sync-runs database, but it's useful when something goes wrong.
-
----
-
-## Prerequisites
-
-- macOS or Linux
-- Node 22+ and npm 10+ (`brew install node`)
-- A Notion account
-- A Letterboxd account
-- (Optional) A Letterboxd CSV export, if you want to seed your Films DB with your full history on day one
-
-## Quick start
+You'll need [Node 22+](https://nodejs.org) and a Notion account.
 
 ```bash
-# 1. Install the ntn CLI (one-time)
+# 1. Install the Notion CLI (one-time)
 curl -fsSL https://ntn.dev | bash
 
-# 2. Log in
-ntn login
-
-# 3. Get the code
+# 2. Clone, install, run setup
 git clone https://github.com/brianlovin/letterboxd-notion-sync.git
 cd letterboxd-notion-sync
 npm install
-
-# 4. Run the interactive setup
-#    Creates your Films database + three views + writes .env
 npm run setup
-
-# 5. Push secrets to the worker and deploy
-ntn workers env push
-ntn workers deploy
-
-# 6. (Optional) Import your full Letterboxd history before the first sync
-npm run import-csv -- /path/to/letterboxd-export
-
-# 7. (Optional) Enrich existing pages with metadata (covers / director / cast / etc.)
-npm run backfill
-
-# 8. Trigger the first real sync
-ntn workers sync trigger letterboxdSync
 ```
 
-The worker is now scheduled hourly. New diary entries appear in your Films database within a sync cycle, with the poster as the page cover.
+The setup script will:
 
----
+1. Ask you to paste a **Personal Access Token** from <https://www.notion.so/developers/tokens> (click _New personal access token_ → tick Read/Insert/Update → copy)
+2. Ask for your Letterboxd username
+3. Create a `🎬 Films` database at the root of your Notion workspace (with three views: Watched, Watchlist, All Films)
+4. Deploy the sync worker — runs hourly from then on
 
-## Step-by-step setup
+That's it. New diary entries and watchlist additions appear in Notion within an hour.
 
-### 1. Get a Notion API token
+### Optional: bring in your history on day one
 
-The simplest option is a **Personal Access Token (PAT)** — it acts as you, so the worker can read and write any page you can, no per-page sharing required.
-
-1. Go to <https://www.notion.so/developers/tokens>
-2. Click **New personal access token**
-3. Name it (e.g. `letterboxd-notion-sync`), pick your workspace, give it **Read content**, **Update content**, **Insert content**
-4. Copy the token (starts with `ntn_`)
-
-PATs expire after one year. When yours expires, generate a new one and run `ntn workers env set NOTION_API_TOKEN=ntn_...`.
-
-> **Alternative:** an [internal integration token](https://www.notion.so/profile/integrations/internal) works too, but you'll need to share the Films database with that integration after setup creates it (`⋯` → `Connections` → `Add connections`). PATs skip this step.
-
-### 2. Run `npm run setup`
-
-The script will prompt you for the Notion token and your Letterboxd username, then:
-
-- Create a `🎬 Films` database at the **root of your workspace** with all 23 properties pre-configured
-- Create three views (Watched gallery, Watchlist gallery, All Films table)
-- Delete the empty default view Notion auto-creates
-- Write `.env` with everything the worker and helper scripts need
-
-(You can drag the database anywhere in your workspace afterwards.)
-
-### 3. Deploy the worker
+The hourly sync only sees recent diary entries (Letterboxd's RSS caps at about 50). If you want everything:
 
 ```bash
-ntn workers env push   # uploads .env to the worker's secret store
-ntn workers deploy
+# Download your CSV export at https://letterboxd.com/settings/data/, unzip it,
+# then point the importer at the unzipped folder:
+npm run import-csv -- ~/Downloads/letterboxd-yourname
+npm run backfill                                       # adds posters + metadata
 ```
 
-On deploy, the worker also creates its own `🎬 Letterboxd sync runs` audit database in your workspace.
+## What you get
 
-### 4. (Optional but recommended) Seed history from your CSV export
+| Property | Source |
+|----------|--------|
+| Title, Year, Letterboxd URI | Letterboxd diary / watchlist |
+| Status (Watched / Watchlist) | Automatic; transitions Watchlist → Watched when you log a film |
+| Rating (★★★★½), Watched Date, Rewatch, Review, Tags | Your diary entry |
+| Director, Cast (top 5), Genres, Country, Studio (top 3) | Multi-select for filtering |
+| Runtime (rendered as `2h 30m`) | Formula property over `Runtime minutes` |
+| Letterboxd Rating, Rating Count | Community average from the film page |
+| Tagline, Plot | Film page |
+| IMDb, TMDB | Direct links |
+| Cover image | Film's landscape poster |
 
-Letterboxd doesn't expose your full history via RSS — only the most recent ~50 diary entries. If you want everything from day one:
-
-1. At <https://letterboxd.com/settings/data/>, download your CSV export
-2. Unzip it somewhere local
-3. Run `npm run import-csv -- /path/to/letterboxd-export`
-
-This creates one Notion page per row from `diary.csv` and `watchlist.csv`, with rating, watch date, rewatch flag, and tags filled in. It does *not* set posters or metadata — that's the next step.
-
-### 5. (Optional) Enrich with covers + director + cast + etc.
-
-```bash
-npm run backfill
-```
-
-For each page that doesn't already have a `Director` set, the script fetches the film page on Letterboxd, parses the JSON-LD block plus a few footer/meta tags, and writes 13 metadata properties back to Notion.
-
-At 5 requests/second to Letterboxd, ~1000 films takes ~3.5 minutes.
-
----
-
-## Configuration
-
-All configuration lives in `.env` (local) or as worker secrets (deployed via `ntn workers env push`).
-
-| Variable | Purpose |
-|----------|---------|
-| `NOTION_API_TOKEN` | Internal integration token (starts with `ntn_`) |
-| `LETTERBOXD_USER` | Your Letterboxd username (the part after `letterboxd.com/`) |
-| `FILMS_DATABASE_ID` | UUID of your Films database. It's in the database URL — the helper scripts resolve the underlying data source ID automatically. |
-
-To change one of these later:
-
-```bash
-ntn workers env set LETTERBOXD_USER=newusername
-```
-
-To change the sync cadence, edit `src/index.ts` (`schedule: "1h"` — valid values are `5m`, `15m`, `30m`, `1h`, `1d`, up to `7d`) and redeploy.
-
----
-
-## How it works
-
-### Diary
-
-Pulled from `https://letterboxd.com/USER/rss/` (RSS, server-friendly).
-
-For each entry, the worker dedupes against the Films DB by `(title, year)`. New entries are created with `Status="Watched"`, watched date, rating, rewatch flag, and the poster from the RSS as the cover.
-
-If a film is already in the DB with `Status="Watchlist"`, it's *transitioned* to Watched: existing properties are kept, watched date / rating / cover are updated.
-
-### Watchlist
-
-Letterboxd doesn't publish the watchlist as RSS (the `/watchlist/rss/` URL is Cloudflare-blocked). The worker scrapes `letterboxd.com/USER/watchlist/` HTML instead — each page lists ~28 films in `data-item-*` attributes, and pagination is via the "Older" link until exhausted.
-
-For each new watchlist film, the worker fetches the film page once to read its `og:image` (the real CDN poster URL — the `/image-150/` redirect URL in the watchlist markup is itself CF-blocked and won't render as a cover).
-
-### Audit log
-
-One row per run in the `🎬 Letterboxd sync runs` database with: started date, added, updated, errors, and a notes field summarizing what was scanned and any per-film errors.
-
----
+Plus a separate `🎬 Letterboxd sync runs` database that logs every sync (added, updated, errors, notes) — useful for debugging, easy to hide otherwise.
 
 ## Maintenance
 
 ```bash
-# Live status across all your workers' syncs
-ntn workers sync status
-
-# What happened in the most recent run
-ntn workers runs list --plain | head -n1 | cut -f1 | xargs -I{} ntn workers runs logs {}
-
-# Force a sync right now
-ntn workers sync trigger letterboxdSync
-
-# Preview what a sync would do, without writing
-ntn workers sync trigger letterboxdSync --preview
-
-# Disable / re-enable the schedule
-ntn workers capabilities disable letterboxdSync
-ntn workers capabilities enable letterboxdSync
+ntn workers sync status                              # health check
+ntn workers sync trigger letterboxdSync              # force a sync now
+ntn workers sync trigger letterboxdSync --preview    # dry-run a sync
+ntn workers runs list                                # recent runs
 ```
 
----
-
-## Troubleshooting
-
-### "API token is invalid" / "object not found"
-
-- **Using a PAT?** Make sure it hasn't expired (PATs last 1 year). Generate a fresh one at <https://www.notion.so/developers/tokens> and run `ntn workers env set NOTION_API_TOKEN=ntn_...`, then `ntn workers deploy`.
-- **Using an internal integration?** Make sure it's *connected* to your Films database — open the database page, click `⋯` → `Connections` → add your integration.
-
-### Cover images aren't loading on new entries
-
-Notion's image proxy needs the cover URL to be a directly-fetchable image, not a redirect. The worker resolves film posters via the film page's `og:image` tag. If a cover still doesn't load:
-
-```bash
-ntn workers runs list --plain | head -n1 | cut -f1 | xargs -I{} ntn workers runs logs {}
-```
-
-…and look at the notes for the affected film. If the film page returned 4xx, the slug Letterboxd assigned doesn't match what we extracted — open an issue with the title.
-
-### `WATCHLIST_FAILED: GET https://letterboxd.com/USER/watchlist/ → 403`
-
-Cloudflare started challenging the worker's IPs on the watchlist HTML endpoint too. Options:
-1. Wait it out — usually transient
-2. Switch the watchlist fetch to use [Cloudflare Browser Rendering](https://developers.cloudflare.com/browser-rendering/) (requires a free CF account + API token)
-
-### "Invalid multi_select option, commas not allowed"
-
-The backfill script sanitizes commas in option names automatically (e.g., "Tyler, The Creator" → "Tyler The Creator"). If you see this from the *worker* (not the backfill), it means a new diary entry came in with a comma-bearing director or studio — open an issue with the film and we'll add it to the worker's sanitizer too.
-
-### "Watchlist removals don't sync"
-
-By design. The watchlist HTML scraper only sees what's currently on the watchlist, but the worker doesn't currently reconcile removals — if you remove a film from your Letterboxd watchlist, it stays in Notion until you delete it there. (PR welcome.)
-
-### Rate limiting
-
-The worker uses a 5 req/sec pacer for Letterboxd. If you see persistent 429s, drop `allowedRequests: 5` to `2` in `src/index.ts` and redeploy.
-
----
-
-## Privacy
-
-Everything runs in your own Notion workspace, against your own Letterboxd account. No third-party services involved beyond Notion and Letterboxd. The integration token is stored as a Notion worker secret (encrypted at rest) and never leaves Notion's infrastructure once you've run `ntn workers env push`.
+To change the sync cadence, edit `schedule: "1h"` in `src/index.ts` (valid: `5m` … `7d`) and run `ntn workers deploy`.
 
 ## License
 
