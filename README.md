@@ -1,3 +1,5 @@
+<img width="3584" height="2352" alt="Screen Shot 2026-05-13 at 13 46 36@2x" src="https://github.com/user-attachments/assets/e1e04e90-3b12-4028-9ad6-f20c5edbb5d5" />
+
 # Letterboxd → Notion
 
 [![CI](https://github.com/brianlovin/letterboxd-notion-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/brianlovin/letterboxd-notion-sync/actions/workflows/ci.yml)
