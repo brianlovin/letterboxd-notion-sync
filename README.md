@@ -78,16 +78,24 @@ The worker is now scheduled hourly. New diary entries appear in your Films datab
 
 ## Step-by-step setup
 
-### 1. Get a Notion integration token
+### 1. Get a Notion API token
 
-1. Go to <https://www.notion.so/profile/integrations/internal>
-2. Click **New integration**, give it a name (e.g. `letterboxd-notion-sync`)
-3. Capabilities: **Read content**, **Update content**, **Insert content**
-4. Copy the **Internal Integration Token** (starts with `ntn_`) — you'll paste it during `npm run setup`
+The simplest option is a **Personal Access Token (PAT)** — it acts as you, so the worker can read and write any page you can, no per-page sharing required.
+
+1. Go to <https://www.notion.so/developers/tokens>
+2. Click **New personal access token**
+3. Name it (e.g. `letterboxd-notion-sync`), pick your workspace, give it **Read content**, **Update content**, **Insert content**
+4. Copy the token (starts with `ntn_`)
+
+PATs expire after one year. When yours expires, generate a new one and run `ntn workers env set NOTION_API_TOKEN=ntn_...`.
+
+> **Alternative:** an [internal integration token](https://www.notion.so/profile/integrations/internal) works too, but you'll need to share the Films database and any parent page with that integration via each page's `⋯` → `Connections` menu. PATs skip this step.
 
 ### 2. Pick a parent page in your workspace
 
-The setup script will create a new database inside an existing page. Open any page in your workspace, click `⋯` → `Connections` → add your integration. Copy the page URL (or just the ID).
+The setup script will create a new database inside an existing page. Open any page in your workspace and copy its URL.
+
+(If you're using an internal integration instead of a PAT, also add the integration to that page via `⋯` → `Connections` → `Add connections` before continuing.)
 
 ### 3. Run `npm run setup`
 
@@ -198,9 +206,10 @@ ntn workers capabilities enable letterboxdSync
 
 ## Troubleshooting
 
-### "API token is invalid"
+### "API token is invalid" / "object not found"
 
-Make sure the integration is *connected* to your Films database — open the database page, click `⋯` → `Connections` → add your integration.
+- **Using a PAT?** Make sure it hasn't expired (PATs last 1 year). Generate a fresh one at <https://www.notion.so/developers/tokens> and run `ntn workers env set NOTION_API_TOKEN=ntn_...`, then `ntn workers deploy`.
+- **Using an internal integration?** Make sure it's *connected* to your Films database — open the database page, click `⋯` → `Connections` → add your integration.
 
 ### Cover images aren't loading on new entries
 

@@ -194,10 +194,16 @@ async function main() {
 	console.log("add three views (Watched, Watchlist, All Films), and write a .env");
 	console.log("file with everything the worker and helper scripts need.");
 
-	step("Step 1 / 4 — Notion integration token");
-	console.log("  Create an internal integration at:");
-	console.log("    https://www.notion.so/profile/integrations/internal");
-	console.log("  Give it: Read, Insert, Update content. Copy the token.");
+	step("Step 1 / 4 — Notion API token");
+	console.log("  Easiest: create a Personal Access Token (PAT). PATs act as you,");
+	console.log("  so the worker can read/write any page you can — no per-page sharing.");
+	console.log("    https://www.notion.so/developers/tokens");
+	console.log("  Click \"New personal access token\", give it Read/Insert/Update,");
+	console.log("  pick your workspace, copy the token.");
+	console.log();
+	console.log("  (Alternative: an internal integration token from");
+	console.log("   notion.so/profile/integrations/internal also works, but you'll have");
+	console.log("   to share the Films DB and parent page with that integration.)");
 	const token = await prompt(rl, "  NOTION_API_TOKEN", existing.NOTION_API_TOKEN);
 	if (!token.startsWith("ntn_")) bail(`Token doesn't look right (should start with "ntn_")`);
 
@@ -218,7 +224,6 @@ async function main() {
 
 	step("Step 3 / 4 — Parent page");
 	console.log("  Pick a page in your workspace that will hold the Films database.");
-	console.log("  Share the page with your integration (Connections menu → Add).");
 	console.log("  Paste the page URL or page ID:");
 	let parentPageId: string | null = null;
 	while (!parentPageId) {
@@ -227,12 +232,18 @@ async function main() {
 		if (!parentPageId) console.log("  ✗ Couldn't find a Notion ID in that. Try again.");
 	}
 
-	// Verify the integration can see the page.
+	// Verify the token can read the page. For a PAT this just checks you own
+	// (or have access to) the page; for an integration token, this also
+	// confirms you remembered to share via Connections.
 	try {
 		await notion.request({ path: `pages/${parentPageId}`, method: "get" });
 		success(`Parent page is accessible`);
 	} catch (e: any) {
-		bail(`Can't see that page. Did you connect your integration to it? (${e.message})`);
+		bail(
+			`Can't read that page (${e.message}). ` +
+			`If you used an integration token, make sure you added the integration ` +
+			`via the page's Connections menu. PATs don't need that step.`,
+		);
 	}
 
 	step("Step 4 / 4 — Creating database + views");
