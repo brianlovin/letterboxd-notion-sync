@@ -12,23 +12,36 @@ See [README.md](./README.md) for the user-facing overview.
 
 ```
 src/
-  index.ts            # The worker. Hourly sync; reads LETTERBOXD_USER and
-                      # FILMS_DATABASE_ID from worker env (set via
-                      # `ntn workers env set` or pushed from .env).
+  index.ts            # The worker. Hourly sync. Reads LETTERBOXD_USER and
+                      # FILMS_DATABASE_ID from worker env (pushed from .env).
+  letterboxd.ts       # Pure Letterboxd parsers (RSS, watchlist HTML, film
+                      # page JSON-LD). Shared with scripts; covered by tests.
 
 scripts/
+  lib.ts              # Notion client setup + resolveDataSourceId().
+  csv.ts              # Pure CSV parsing + Letterboxd row builders.
+                      # Covered by tests.
   setup.ts            # Interactive first-time setup. Creates the Films
                       # database + 3 views and writes .env.
   import-csv.ts       # Bulk-imports Letterboxd's CSV export. Idempotent on
                       # (title, year).
-  backfill.ts         # Enriches existing pages with 13 metadata properties
-                      # scraped from Letterboxd film pages. Idempotent on
-                      # the Director property; --force to re-enrich.
-  add-properties.ts   # Adds the 13 metadata properties to a Films DB that
-                      # was created before this script was written. New
-                      # installs don't need it (setup.ts creates them).
+  backfill.ts         # Enriches existing pages with metadata scraped from
+                      # Letterboxd film pages. Idempotent on the Director
+                      # property; --force to re-enrich.
+  add-properties.ts   # Adds metadata properties to a Films DB that was
+                      # created before this script was written, plus
+                      # migrates legacy "Runtime" number → "Runtime minutes"
+                      # + new "Runtime" formula. New installs don't need it.
 
-.env.example          # Template for the four required env vars.
+tests/
+  letterboxd.test.ts  # Parser tests (RSS, HTML, JSON-LD).
+  import-csv.test.ts  # CSV parser + row builder tests.
+  fixtures/           # Sample HTML/RSS/CSV files.
+
+.github/workflows/
+  ci.yml              # GH Actions: npm run check + npm test on push/PR.
+
+.env.example          # Template for the three required env vars.
 ```
 
 ## Conventions
@@ -81,11 +94,14 @@ The Notes field on the most recent row of the `🎬 Letterboxd sync runs` databa
 
 ## Testing
 
-There's no test runner. Validate with:
-1. `npm run check` — type-check
-2. `npm run setup` against a throwaway parent page
-3. `npm run backfill -- --limit 5 --dry-run` after import
-4. `ntn workers sync trigger letterboxdSync --preview` after deploy
+- `npm run check` — type-check (no emit)
+- `npm test` — unit tests against fixtures under `tests/fixtures/`. Pure functions only; no network or Notion calls.
+- For changes that touch the worker or any Notion-API side effect, also validate end-to-end:
+	1. `npm run setup` against a throwaway parent page
+	2. `npm run backfill -- --limit 5 --dry-run` after import
+	3. `ntn workers sync trigger letterboxdSync --preview` after deploy
+
+CI runs `npm run check` + `npm test` on every push and PR (`.github/workflows/ci.yml`).
 
 ## Useful docs
 

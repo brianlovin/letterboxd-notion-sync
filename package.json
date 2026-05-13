@@ -6,6 +6,7 @@
 	"scripts": {
 		"build": "tsc",
 		"check": "tsc --noEmit",
+		"test": "tsx --test tests/*.test.ts",
 		"setup": "tsx --env-file=.env scripts/setup.ts",
 		"backfill": "tsx --env-file=.env scripts/backfill.ts",
 		"import-csv": "tsx --env-file=.env scripts/import-csv.ts",

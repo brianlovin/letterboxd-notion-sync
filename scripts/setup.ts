@@ -82,6 +82,14 @@ const STATUS_OPTIONS = [
 	{ name: "Watchlist", color: "blue"  as const },
 ];
 
+// Formula expression that renders "Runtime minutes" as e.g. "2h 30m".
+// Edge cases: empty input → "", < 60min → "Xm", exact hour → "Xh".
+const RUNTIME_FORMULA_EXPRESSION =
+	'if(empty(prop("Runtime minutes")), "", ' +
+		'if(prop("Runtime minutes") < 60, format(prop("Runtime minutes")) + "m", ' +
+			'if(prop("Runtime minutes") % 60 == 0, format(floor(prop("Runtime minutes") / 60)) + "h", ' +
+				'format(floor(prop("Runtime minutes") / 60)) + "h " + format(prop("Runtime minutes") % 60) + "m")))';
+
 const SCHEMA = {
 	// Required by Notion: every database has exactly one title property.
 	Title:                 { title: {} },
@@ -102,7 +110,9 @@ const SCHEMA = {
 	Genres:                { multi_select: { options: [] } },
 	Country:               { multi_select: { options: [] } },
 	Studio:                { multi_select: { options: [] } },
-	Runtime:               { number: { format: "number" } },
+	"Runtime minutes":     { number: { format: "number" } },
+	// Rendered runtime (e.g. "2h 30m"). Formula-derived from "Runtime minutes".
+	Runtime:               { formula: { expression: RUNTIME_FORMULA_EXPRESSION } },
 	"Letterboxd Rating":   { number: { format: "number" } },
 	"Rating Count":        { number: { format: "number_with_commas" } },
 	Tagline:               { rich_text: {} },

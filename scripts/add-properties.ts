@@ -13,9 +13,19 @@
  * Multi-select options are intentionally left empty — Notion auto-creates
  * an option the first time a page is written with a value that doesn't exist
  * yet, which is the self-healing behavior we want.
+ *
+ * Also handles the Runtime → "Runtime minutes" + Runtime (formula) migration
+ * for databases that pre-date that schema split.
  */
 
 import { notionClient, requireEnv, resolveDataSourceId } from "./lib";
+
+// Renders "Runtime minutes" as "2h 30m" / "45m" / "2h" / "" (empty).
+const RUNTIME_FORMULA_EXPRESSION =
+	'if(empty(prop("Runtime minutes")), "", ' +
+		'if(prop("Runtime minutes") < 60, format(prop("Runtime minutes")) + "m", ' +
+			'if(prop("Runtime minutes") % 60 == 0, format(floor(prop("Runtime minutes") / 60)) + "h", ' +
+				'format(floor(prop("Runtime minutes") / 60)) + "h " + format(prop("Runtime minutes") % 60) + "m")))';
 
 const NEW_PROPERTIES: Record<string, any> = {
 	Director:             { multi_select: {} },
@@ -23,7 +33,8 @@ const NEW_PROPERTIES: Record<string, any> = {
 	Genres:               { multi_select: {} },
 	Country:              { multi_select: {} },
 	Studio:               { multi_select: {} },
-	Runtime:              { number: { format: "number" } },
+	"Runtime minutes":    { number: { format: "number" } },
+	Runtime:              { formula: { expression: RUNTIME_FORMULA_EXPRESSION } },
 	"Letterboxd Rating":  { number: { format: "number" } },
 	"Rating Count":       { number: { format: "number_with_commas" } },
 	Tagline:              { rich_text: {} },
@@ -42,7 +53,26 @@ async function main() {
 		path:   `data_sources/${dataSourceId}`,
 		method: "get",
 	});
-	const existing = new Set(Object.keys(ds.properties || {}));
+	const properties = ds.properties || {};
+
+	// Legacy migration: if Runtime exists and is a number, rename it to
+	// "Runtime minutes". This has to be a separate PATCH from creating the
+	// new Runtime formula — Notion won't accept rename + create-with-same-name
+	// in one payload (the keys collide).
+	const runtime = properties.Runtime;
+	if (runtime && runtime.type === "number") {
+		console.log(`Migrating: renaming "Runtime" (number) → "Runtime minutes"`);
+		await notion.request({
+			path:   `data_sources/${dataSourceId}`,
+			method: "patch",
+			body:   { properties: { Runtime: { name: "Runtime minutes" } } },
+		});
+		// Reflect the rename locally so the next loop computes the right set.
+		properties["Runtime minutes"] = { ...runtime, name: "Runtime minutes" };
+		delete properties.Runtime;
+	}
+
+	const existing = new Set(Object.keys(properties));
 
 	const toAdd: Record<string, any> = {};
 	const skipped: string[] = [];

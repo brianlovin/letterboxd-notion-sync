@@ -102,7 +102,7 @@ function buildUpdate(m: FilmMeta) {
 		Genres:               multiSelect(m.genres),
 		Country:              multiSelect(m.countries),
 		Studio:               multiSelect(m.studios),
-		Runtime:              numberProp(m.runtimeMins),
+		"Runtime minutes":    numberProp(m.runtimeMins),
 		"Letterboxd Rating":  numberProp(m.rating !== null ? Math.round(m.rating * 100) / 100 : null),
 		"Rating Count":       numberProp(m.ratingCount),
 		Tagline:              richText(m.tagline),

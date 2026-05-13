@@ -1,5 +1,7 @@
 # Letterboxd → Notion
 
+[![CI](https://github.com/brianlovin/letterboxd-notion-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/brianlovin/letterboxd-notion-sync/actions/workflows/ci.yml)
+
 Sync your Letterboxd diary and watchlist into a Notion database, hourly, with poster covers and rich metadata (director, cast, runtime, genres, IMDb/TMDB links).
 
 Runs as a Notion Worker — no server, no cron, no laptop staying on.
@@ -14,7 +16,7 @@ A Notion database with one page per film, three views (Watched / Watchlist / All
 - **Rating** — your Letterboxd rating, rendered as stars (★★★★½)
 - **Watched Date**, **Logged Date**, **Rewatch**, **Review**, **Tags** — straight from your diary
 - **Director**, **Cast** (top 5), **Genres**, **Country**, **Studio** (top 3) — multi-select, so you can filter
-- **Runtime** in minutes
+- **Runtime minutes** (number) and **Runtime** (formula, renders as `2h 30m`)
 - **Letterboxd Rating** (the community average), **Rating Count**
 - **Tagline**, **Plot**
 - **IMDb** and **TMDB** links

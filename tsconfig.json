@@ -11,6 +11,6 @@
 		"resolveJsonModule": true,
 		"moduleResolution": "nodenext"
 	},
-	"include": ["src/**/*", "scripts/**/*"],
+	"include": ["src/**/*", "scripts/**/*", "tests/**/*"],
 	"exclude": ["node_modules", "dist"]
 }

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:letterboxd="https://letterboxd.com" xmlns:dc="http://purl.org/dc/elements/1.1/">
+	<channel>
+		<title>brianlovin's diary</title>
+		<item>
+			<title>One Battle After Another, 2025 - ★★★★</title>
+			<link>https://letterboxd.com/brianlovin/film/one-battle-after-another/</link>
+			<pubDate>Fri, 16 Jan 2026 09:20:27 +1300</pubDate>
+			<letterboxd:watchedDate>2025-12-19</letterboxd:watchedDate>
+			<letterboxd:rewatch>No</letterboxd:rewatch>
+			<letterboxd:filmTitle>One Battle After Another</letterboxd:filmTitle>
+			<letterboxd:filmYear>2025</letterboxd:filmYear>
+			<letterboxd:memberRating>4.0</letterboxd:memberRating>
+			<description><![CDATA[ <p><img src="https://a.ltrbxd.com/resized/film-poster/oboaa.jpg"/></p> ]]></description>
+		</item>
+		<item>
+			<title>Heart Eyes, 2025 - ★★½ (rewatched)</title>
+			<link>https://letterboxd.com/brianlovin/film/heart-eyes-2025/</link>
+			<letterboxd:watchedDate>2025-12-15</letterboxd:watchedDate>
+			<letterboxd:rewatch>Yes</letterboxd:rewatch>
+			<letterboxd:filmTitle>Heart Eyes</letterboxd:filmTitle>
+			<letterboxd:filmYear>2025</letterboxd:filmYear>
+			<letterboxd:memberRating>2.5</letterboxd:memberRating>
+			<description><![CDATA[ <p><img src="https://a.ltrbxd.com/resized/film-poster/heart-eyes.jpg"/></p> ]]></description>
+		</item>
+		<item>
+			<title>An untitled-tag item with no filmTitle (should be ignored)</title>
+			<link>https://letterboxd.com/brianlovin/list/some-list/</link>
+		</item>
+	</channel>
+</rss>
