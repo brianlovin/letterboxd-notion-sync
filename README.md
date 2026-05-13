@@ -11,6 +11,10 @@ curl -fsSL https://ntn.dev | bash
 ```
 
 ```bash
+ntn login
+```
+
+```bash
 git clone https://github.com/brianlovin/letterboxd-notion-sync.git
 ```
 
