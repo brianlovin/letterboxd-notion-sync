@@ -28,8 +28,7 @@ const C = {
 	green: (s: string) => `\x1b[32m${s}\x1b[0m`,
 };
 
-function header(s: string)  { console.log(`\n${C.bold(s)}`); console.log(C.dim("─".repeat(Math.max(s.length, 25)))); }
-function step(s: string)    { console.log(`\n${C.bold(s)}`); }
+function step(s: string)    { console.log(`\n${C.bold("▸")} ${C.bold(s)}`); }
 function info(s: string)    { console.log(`  ${s}`); }
 function ok(s: string)      { console.log(`  ${C.green("✓")} ${s}`); }
 function fail(s: string)    { console.log(`  ${C.red("✗")} ${s}`); }
@@ -146,8 +145,6 @@ async function checkLetterboxdUser(user: string): Promise<{ ok: boolean; reason?
 async function main() {
 	console.log(C.bold("\nLetterboxd → Notion setup"));
 	console.log(C.dim("─────────────────────────"));
-	console.log(C.dim("This will create a Films database in your Notion workspace"));
-	console.log(C.dim("and deploy a sync worker that runs hourly."));
 
 	// ---------- Preflight: ntn CLI ----------
 	if (!hasNtn()) {
@@ -158,11 +155,7 @@ async function main() {
 			`Then re-run \`npm run setup\`.`,
 		);
 	}
-	if (!ntnAuthed()) {
-		console.log(`\n${C.bold("Step 0 — Sign in to Notion CLI")}`);
-		info(`Opening Notion in your browser to sign in…`);
-		runNtn(["login"]);
-	}
+	if (!ntnAuthed()) runNtn(["login"]);
 
 	// ---------- Force handling ----------
 	if (FORCE && fs.existsSync(".env")) {
@@ -174,10 +167,9 @@ async function main() {
 	const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
 	// ---------- Step 1 — Notion token ----------
-	step(`Step 1 of 4 — ${C.bold("Notion access token")}`);
-	console.log(C.dim(`  Create a Personal Access Token at:`));
-	console.log(C.dim(`    https://www.notion.so/developers/tokens`));
-	console.log(C.dim(`  Click "New personal access token", tick both Notion API and Workers, Create, copy.`));
+	step("Notion access token");
+	console.log(C.dim(`  https://notion.so/developers/tokens → New personal access token`));
+	console.log(C.dim(`  → tick Notion API + Workers → Create → copy`));
 	let token = existing.NOTION_API_TOKEN ?? "";
 	if (!token) token = await promptHidden(rl, "Token");
 	if (!token.startsWith("ntn_")) bail(`Token doesn't look right — should start with "ntn_".`);
@@ -203,8 +195,7 @@ async function main() {
 	}
 
 	// ---------- Step 2 — Letterboxd username ----------
-	step(`Step 2 of 4 — ${C.bold("Letterboxd username")}`);
-	console.log(C.dim(`  Your profile is at letterboxd.com/USERNAME.`));
+	step("Letterboxd username");
 	let letterboxdUser = existing.LETTERBOXD_USER ?? "";
 	while (true) {
 		letterboxdUser = await prompt(rl, "Username", letterboxdUser);
@@ -218,7 +209,7 @@ async function main() {
 	}
 
 	// ---------- Step 3 — Database + views ----------
-	step(`Step 3 of 4 — ${C.bold("Creating database")}`);
+	step("Creating database");
 	let databaseId   = existing.FILMS_DATABASE_ID ?? "";
 	let dataSourceId = "";
 	let databaseUrl  = "";
@@ -319,7 +310,7 @@ async function main() {
 	rl.close();
 
 	// ---------- Step 4 — Deploy worker ----------
-	step(`Step 4 of 4 — ${C.bold("Deploying worker")}`);
+	step("Deploying worker");
 
 	if (SKIP_DEPLOY) {
 		info(`--no-deploy passed; skipping the ntn deploy step.`);
@@ -329,23 +320,21 @@ async function main() {
 			runNtn(["workers", "create", "--name", "letterboxd-notion-sync"]);
 		}
 		runNtn(["workers", "env", "push"]);
-		ok(`Secrets uploaded`);
 		runNtn(["workers", "deploy"]);
 		ok(`Worker deployed (runs hourly)`);
+
+		// Kick off the first sync immediately so the database starts filling
+		// up while the user is reading the "done" message. spawnSync waits;
+		// that's fine here, the sync is fast.
+		runNtn(["workers", "sync", "trigger", "letterboxdSync"]);
+		ok(`First sync triggered — open the database below to watch films arrive`);
 	}
 
 	// ---------- Done ----------
 	console.log(`\n${C.bold(C.green("Setup complete."))}`);
-	console.log();
-	console.log(`  Your database: ${C.bold(databaseUrl)}`);
-	console.log();
-	console.log(`  ${C.bold("What's next")}`);
-	console.log(`    • Trigger a sync right now:`);
-	console.log(`        ${C.dim("ntn workers sync trigger letterboxdSync")}`);
-	console.log(`    • Import your full Letterboxd history:`);
-	console.log(`        ${C.dim("npm run import-csv -- /path/to/letterboxd-export")}`);
-	console.log(`    • Add posters + metadata to imported pages:`);
-	console.log(`        ${C.dim("npm run backfill")}`);
+	console.log(`\n  Your database: ${C.bold(databaseUrl)}\n`);
+	console.log(C.dim(`  Bring in your full Letterboxd history (optional):`));
+	console.log(C.dim(`    npm run import-csv -- /path/to/letterboxd-export && npm run backfill`));
 	console.log();
 }
 
