@@ -254,12 +254,13 @@ async function main() {
 		}
 	}
 
-	// Write .env.
+	// Write .env. We deliberately don't persist the data source ID — the
+	// scripts resolve it from FILMS_DATABASE_ID at startup, so users only
+	// have to know the database ID (which is in the URL).
 	writeDotenv(".env", {
-		NOTION_API_TOKEN:     token,
-		LETTERBOXD_USER:      letterboxdUser,
-		FILMS_DATABASE_ID:    databaseId,
-		FILMS_DATA_SOURCE_ID: dataSourceId,
+		NOTION_API_TOKEN:  token,
+		LETTERBOXD_USER:   letterboxdUser,
+		FILMS_DATABASE_ID: databaseId,
 	});
 	success(`Wrote .env`);
 

@@ -15,16 +15,7 @@
  * yet, which is the self-healing behavior we want.
  */
 
-import { Client } from "@notionhq/client";
-
-const NOTION_VERSION = "2025-09-03";
-
-const token        = process.env.NOTION_API_TOKEN;
-const dataSourceId = process.env.FILMS_DATA_SOURCE_ID;
-if (!token)        { console.error("Set NOTION_API_TOKEN");        process.exit(1); }
-if (!dataSourceId) { console.error("Set FILMS_DATA_SOURCE_ID");    process.exit(1); }
-
-const notion = new Client({ auth: token, notionVersion: NOTION_VERSION });
+import { notionClient, requireEnv, resolveDataSourceId } from "./lib";
 
 const NEW_PROPERTIES: Record<string, any> = {
 	Director:             { multi_select: {} },
@@ -43,8 +34,12 @@ const NEW_PROPERTIES: Record<string, any> = {
 };
 
 async function main() {
+	const notion       = notionClient();
+	const databaseId   = requireEnv("FILMS_DATABASE_ID");
+	const dataSourceId = await resolveDataSourceId(notion, databaseId);
+
 	const ds = await notion.request<any>({
-		path: `data_sources/${dataSourceId}`,
+		path:   `data_sources/${dataSourceId}`,
 		method: "get",
 	});
 	const existing = new Set(Object.keys(ds.properties || {}));
@@ -64,9 +59,9 @@ async function main() {
 
 	console.log(`Adding: ${Object.keys(toAdd).join(", ")}`);
 	await notion.request({
-		path: `data_sources/${dataSourceId}`,
+		path:   `data_sources/${dataSourceId}`,
 		method: "patch",
-		body: { properties: toAdd },
+		body:   { properties: toAdd },
 	});
 	console.log("Done.");
 }

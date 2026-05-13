@@ -1,8 +1,8 @@
 /**
  * Letterboxd → Notion sync.
  *
- * Hourly worker that pulls your Letterboxd diary RSS and watchlist HTML, then
- * writes new entries into your Films database with poster covers.
+ * Hourly worker that pulls your Letterboxd diary RSS and watchlist HTML,
+ * then writes new entries into your Films database with poster covers.
  *
  * Architecture
  * ────────────
@@ -11,16 +11,25 @@
  * row per run with counts and notes. The real work happens inside `execute`
  * via `context.notion`, which writes to your existing Films database.
  *
- * Configuration (worker secrets via `ntn workers env set`)
- * ────────────────────────────────────────────────────────
+ * Configuration (worker secrets via `ntn workers env push`)
+ * ─────────────────────────────────────────────────────────
  *   LETTERBOXD_USER     — your Letterboxd username (e.g. "brianlovin")
  *   FILMS_DATABASE_ID   — Notion database ID of your Films DB (UUID)
- *   NOTION_API_TOKEN    — integration token that has access to the Films DB
+ *   NOTION_API_TOKEN    — integration token with access to the Films DB
  */
 
 import { Worker } from "@notionhq/workers";
 import * as Builder from "@notionhq/workers/builder";
 import * as Schema from "@notionhq/workers/schema";
+
+import {
+	parseDiaryRss,
+	parseWatchlistHtml,
+	nextWatchlistPagePath,
+	extractOgImage,
+	type DiaryEntry,
+	type WatchlistEntry,
+} from "./letterboxd.js";
 
 // ---------- Config ---------------------------------------------------------
 
@@ -67,21 +76,6 @@ const letterboxd = worker.pacer("letterboxd", {
 
 // ---------- Constants ------------------------------------------------------
 
-// Letterboxd's `<letterboxd:memberRating>` is a decimal between 0.5 and 5.0.
-// We display it as a star string to match how Letterboxd shows ratings.
-const RATING_MAP: Record<string, string> = {
-	"5":  "★★★★★", "5.0": "★★★★★",
-	"4.5": "★★★★½",
-	"4":   "★★★★",  "4.0": "★★★★",
-	"3.5": "★★★½",
-	"3":   "★★★",   "3.0": "★★★",
-	"2.5": "★★½",
-	"2":   "★★",    "2.0": "★★",
-	"1.5": "★½",
-	"1":   "★",     "1.0": "★",
-	"0.5": "½",
-};
-
 // Letterboxd's CDN tolerates anything browser-shaped, but a bare RSS-style
 // User-Agent gets Cloudflare-challenged on some endpoints (notably
 // /watchlist/rss/). Use a realistic browser string for HTML fetches.
@@ -92,47 +86,9 @@ const NOTES_MAX_CHARS    = 1900;
 
 // ---------- Types ----------------------------------------------------------
 
-interface LetterboxdEntry {
-	title:        string;
-	year:         number | null;
-	url:          string;
-	poster:       string | null;
-	watchedDate:  string | null;  // YYYY-MM-DD
-	rating:       string | null;  // star string or null
-	rewatch:      boolean;
-}
-
 interface ExistingEntry {
 	pageId: string;
 	status: string | null;
-}
-
-// ---------- Tiny XML/HTML helpers ------------------------------------------
-
-function decodeXmlEntities(s: string): string {
-	return s
-		.replace(/&amp;/g,  "&")
-		.replace(/&lt;/g,   "<")
-		.replace(/&gt;/g,   ">")
-		.replace(/&quot;/g, '"')
-		.replace(/&apos;/g, "'")
-		.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n));
-}
-
-function unwrapCdata(s: string): string {
-	const m = /<!\[CDATA\[([\s\S]*?)\]\]>/.exec(s);
-	return m ? m[1] : s;
-}
-
-function getTag(block: string, tag: string): string {
-	const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag.split(":")[0]}(?::[^>]*)?>`);
-	const m = re.exec(block);
-	return m ? decodeXmlEntities(unwrapCdata(m[1])).trim() : "";
-}
-
-function truncate(s: string, n = 80): string {
-	if (!s) return "";
-	return s.length > n ? s.slice(0, n) + "…" : s;
 }
 
 // ---------- Letterboxd fetchers --------------------------------------------
@@ -163,73 +119,6 @@ async function fetchLetterboxdHtml(path: string): Promise<string> {
 	return r.text();
 }
 
-// ---------- Parsers --------------------------------------------------------
-
-function parseRss(xml: string): LetterboxdEntry[] {
-	const out: LetterboxdEntry[] = [];
-	for (const m of xml.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
-		const block = m[1];
-		const title = getTag(block, "letterboxd:filmTitle");
-		if (!title) continue;
-		const yearStr     = getTag(block, "letterboxd:filmYear");
-		const link        = getTag(block, "link");
-		const description = getTag(block, "description");
-		const watched     = getTag(block, "letterboxd:watchedDate");
-		const rewatchStr  = getTag(block, "letterboxd:rewatch");
-		const ratingRaw   = getTag(block, "letterboxd:memberRating");
-		const posterM = /<img[^>]+src="([^"]+)"/.exec(description);
-		out.push({
-			title,
-			year:        yearStr ? (parseInt(yearStr, 10) || null) : null,
-			url:         link,
-			poster:      posterM ? posterM[1] : null,
-			watchedDate: watched || null,
-			rating:      ratingRaw ? (RATING_MAP[ratingRaw] ?? null) : null,
-			rewatch:     rewatchStr.toLowerCase() === "yes",
-		});
-	}
-	return out;
-}
-
-// The watchlist page is server-rendered: each film's metadata lives in
-// data-* attributes on a LazyPoster div. Posters are NOT in the markup
-// (only a CF-blocked /image-150/ redirect); we resolve them per-film at
-// create time via the film's og:image.
-function parseWatchlistHtml(html: string): LetterboxdEntry[] {
-	const out: LetterboxdEntry[] = [];
-	for (const m of html.matchAll(/<div[^>]+data-component-class="LazyPoster"[^>]*>/g)) {
-		const tag = m[0];
-		const name = /data-item-name="([^"]+)"/.exec(tag)?.[1];
-		const slug = /data-item-slug="([^"]+)"/.exec(tag)?.[1];
-		const link = /data-item-link="([^"]+)"/.exec(tag)?.[1];
-		if (!name || !slug) continue;
-		const decoded = decodeXmlEntities(name);
-		const ym = /^(.+) \((\d{4})\)$/.exec(decoded);
-		out.push({
-			title:       ym ? ym[1] : decoded,
-			year:        ym ? parseInt(ym[2], 10) : null,
-			url:         `https://letterboxd.com${link ?? `/film/${slug}/`}`,
-			poster:      null,
-			watchedDate: null,
-			rating:      null,
-			rewatch:     false,
-		});
-	}
-	return out;
-}
-
-// Returns the path of the next watchlist page (e.g. "/USER/watchlist/page/2/")
-// or null when we're on the last page.
-function nextWatchlistPagePath(html: string): string | null {
-	const tag = /<a[^>]*\bclass="next"[^>]*>/i.exec(html);
-	if (!tag) return null;
-	const href = /href="([^"]+)"/.exec(tag[0]);
-	return href ? href[1] : null;
-}
-
-// Notion's cover renderer can't follow Letterboxd's /image-150/ redirect
-// (it 403s outside a real browser). The film page's og:image tag has the
-// final CDN URL, which works.
 async function resolveFilmPoster(slug: string): Promise<string | null> {
 	try {
 		await letterboxd.wait();
@@ -237,9 +126,7 @@ async function resolveFilmPoster(slug: string): Promise<string | null> {
 			headers: { "User-Agent": HTML_UA, "Accept": "text/html" },
 		});
 		if (!r.ok) return null;
-		const html = await r.text();
-		const m = /<meta property="og:image" content="([^"]+)"/.exec(html);
-		return m ? decodeXmlEntities(m[1]) : null;
+		return extractOgImage(await r.text());
 	} catch {
 		return null;
 	}
@@ -270,7 +157,7 @@ async function readExistingFilms(notion: any): Promise<Map<string, ExistingEntry
 
 // ---------- Property payload builders -------------------------------------
 
-function buildCreateProps(entry: LetterboxdEntry, status: "Watched" | "Watchlist") {
+function buildCreateProps(entry: DiaryEntry | WatchlistEntry, status: "Watched" | "Watchlist") {
 	const today = new Date().toISOString().slice(0, 10);
 	const props: Record<string, any> = {
 		"Title":          { title: [{ text: { content: entry.title } }] },
@@ -278,19 +165,24 @@ function buildCreateProps(entry: LetterboxdEntry, status: "Watched" | "Watchlist
 		"Letterboxd URI": { url: entry.url },
 		"Logged Date":    { date: { start: today } },
 	};
-	if (entry.year !== null)   props["Year"]         = { number: entry.year };
-	if (entry.rating)          props["Rating"]       = { select: { name: entry.rating } };
-	if (entry.watchedDate)     props["Watched Date"] = { date: { start: entry.watchedDate } };
-	if (entry.rewatch)         props["Rewatch"]      = { checkbox: true };
+	if (entry.year !== null) props["Year"] = { number: entry.year };
+	if ("rating" in entry && entry.rating)           props["Rating"]       = { select: { name: entry.rating } };
+	if ("watchedDate" in entry && entry.watchedDate) props["Watched Date"] = { date: { start: entry.watchedDate } };
+	if ("rewatch" in entry && entry.rewatch)         props["Rewatch"]      = { checkbox: true };
 	return props;
 }
 
-function buildTransitionProps(entry: LetterboxdEntry) {
+function buildTransitionProps(entry: DiaryEntry) {
 	const props: Record<string, any> = { "Status": { select: { name: "Watched" } } };
 	if (entry.rating)      props["Rating"]       = { select: { name: entry.rating } };
 	if (entry.watchedDate) props["Watched Date"] = { date: { start: entry.watchedDate } };
 	if (entry.rewatch)     props["Rewatch"]      = { checkbox: true };
 	return props;
+}
+
+function truncate(s: string, n = 80): string {
+	if (!s) return "";
+	return s.length > n ? s.slice(0, n) + "…" : s;
 }
 
 // ---------- The sync -------------------------------------------------------
@@ -318,7 +210,7 @@ worker.sync("letterboxdSync", {
 
 		// 2. Diary RSS — recently watched films.
 		try {
-			const diary = parseRss(await fetchLetterboxdRss("rss/"));
+			const diary = parseDiaryRss(await fetchLetterboxdRss("rss/"));
 			notes.push(`diary=${diary.length}`);
 			for (const e of diary) {
 				const key = `${e.title}|${e.year ?? ""}`;
@@ -357,7 +249,7 @@ worker.sync("letterboxdSync", {
 		//    the HTML page renders fine for datacenter IPs). Walks pages via
 		//    the "next" link until exhausted.
 		try {
-			const wl: LetterboxdEntry[] = [];
+			const wl: WatchlistEntry[] = [];
 			let path = "watchlist/";
 			let pages = 0;
 			while (path) {
@@ -380,8 +272,7 @@ worker.sync("letterboxdSync", {
 				const key = `${e.title}|${e.year ?? ""}`;
 				if (existing.has(key)) continue;
 				try {
-					const slug   = /\/film\/([^\/]+)\//.exec(e.url)?.[1];
-					const poster = slug ? await resolveFilmPoster(slug) : null;
+					const poster = await resolveFilmPoster(e.slug);
 					const params: any = {
 						parent: { database_id: FILMS_DATABASE_ID },
 						properties: buildCreateProps(e, "Watchlist"),
@@ -427,3 +318,4 @@ function logRun(
 		hasMore: false,
 	};
 }
+

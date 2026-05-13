@@ -138,8 +138,7 @@ All configuration lives in `.env` (local) or as worker secrets (deployed via `nt
 |----------|---------|
 | `NOTION_API_TOKEN` | Internal integration token (starts with `ntn_`) |
 | `LETTERBOXD_USER` | Your Letterboxd username (the part after `letterboxd.com/`) |
-| `FILMS_DATABASE_ID` | UUID of your Films database. Used by the worker. |
-| `FILMS_DATA_SOURCE_ID` | UUID of the underlying data source. Used by the helper scripts (they hit the 2025-09-03 API). |
+| `FILMS_DATABASE_ID` | UUID of your Films database. It's in the database URL — the helper scripts resolve the underlying data source ID automatically. |
 
 To change one of these later:
 

@@ -21,11 +21,11 @@
  * Get your CSV export at: letterboxd.com/settings/data/
  */
 
-import { Client } from "@notionhq/client";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-const NOTION_VERSION = "2025-09-03";
+import { notionClient, requireEnv, resolveDataSourceId } from "./lib";
+import { STAR_RATING_MAP } from "../src/letterboxd";
 
 // ---------- CLI ------------------------------------------------------------
 
@@ -52,35 +52,14 @@ if (!INPUT_PATH) {
 	process.exit(1);
 }
 
-// ---------- Env ------------------------------------------------------------
+// ---------- Client + IDs ---------------------------------------------------
 
-const token        = process.env.NOTION_API_TOKEN;
-const databaseId   = process.env.FILMS_DATABASE_ID;
-const dataSourceId = process.env.FILMS_DATA_SOURCE_ID;
-if (!token)        { console.error("Set NOTION_API_TOKEN"); process.exit(1); }
-if (!databaseId)   { console.error("Set FILMS_DATABASE_ID"); process.exit(1); }
-if (!dataSourceId) { console.error("Set FILMS_DATA_SOURCE_ID"); process.exit(1); }
+const notion     = notionClient();
+const databaseId = requireEnv("FILMS_DATABASE_ID");
 
-const notion = new Client({ auth: token, notionVersion: NOTION_VERSION });
+// ---------- CSV parsing (exported for tests) -------------------------------
 
-// ---------- Rating decimal → star string -----------------------------------
-
-const RATING_MAP: Record<string, string> = {
-	"5":   "★★★★★", "5.0": "★★★★★",
-	"4.5": "★★★★½",
-	"4":   "★★★★",  "4.0": "★★★★",
-	"3.5": "★★★½",
-	"3":   "★★★",   "3.0": "★★★",
-	"2.5": "★★½",
-	"2":   "★★",    "2.0": "★★",
-	"1.5": "★½",
-	"1":   "★",     "1.0": "★",
-	"0.5": "½",
-};
-
-// ---------- CSV parsing ----------------------------------------------------
-
-function parseCsv(text: string): Record<string, string>[] {
+export function parseCsv(text: string): Record<string, string>[] {
 	// Letterboxd CSVs are RFC-4180-ish: standard quoting with "" as escape.
 	// They don't include embedded newlines in fields (which would need a more
 	// stateful parser), so line-by-line is fine.
@@ -98,7 +77,7 @@ function parseCsv(text: string): Record<string, string>[] {
 	});
 }
 
-function parseCsvLine(line: string): string[] {
+export function parseCsvLine(line: string): string[] {
 	const out: string[] = [];
 	let cur = "", inQuotes = false;
 	for (let i = 0; i < line.length; i++) {
@@ -119,7 +98,7 @@ function parseCsvLine(line: string): string[] {
 
 // ---------- Existing-page index --------------------------------------------
 
-async function readExistingKeys(): Promise<Set<string>> {
+async function readExistingKeys(dataSourceId: string): Promise<Set<string>> {
 	const keys = new Set<string>();
 	let cursor: string | undefined;
 	do {
@@ -138,7 +117,7 @@ async function readExistingKeys(): Promise<Set<string>> {
 	return keys;
 }
 
-// ---------- Property payload builder ---------------------------------------
+// ---------- Row builders --------------------------------------------------
 
 interface ImportRow {
 	title:        string;
@@ -167,7 +146,40 @@ function buildProperties(r: ImportRow) {
 	return props;
 }
 
-// ---------- Source resolution ----------------------------------------------
+export function diaryRow(raw: Record<string, string>): ImportRow {
+	const title = raw["Name"]?.trim() ?? "";
+	const year  = raw["Year"] ? parseInt(raw["Year"], 10) : null;
+	const ratingRaw = raw["Rating"]?.trim();
+	return {
+		title,
+		year:        Number.isFinite(year) ? year : null,
+		uri:         raw["Letterboxd URI"]?.trim() || null,
+		rating:      ratingRaw ? (STAR_RATING_MAP[ratingRaw] ?? null) : null,
+		rewatch:     (raw["Rewatch"] ?? "").trim().toLowerCase() === "yes",
+		watchedDate: raw["Watched Date"]?.trim() || null,
+		loggedDate:  raw["Date"]?.trim() || null,
+		tags:        raw["Tags"]?.trim() || null,
+		status:      "Watched",
+	};
+}
+
+export function watchlistRow(raw: Record<string, string>): ImportRow {
+	const title = raw["Name"]?.trim() ?? "";
+	const year  = raw["Year"] ? parseInt(raw["Year"], 10) : null;
+	return {
+		title,
+		year:        Number.isFinite(year) ? year : null,
+		uri:         raw["Letterboxd URI"]?.trim() || null,
+		rating:      null,
+		rewatch:     false,
+		watchedDate: null,
+		loggedDate:  raw["Date"]?.trim() || null,
+		tags:        null,
+		status:      "Watchlist",
+	};
+}
+
+// ---------- Source resolution ---------------------------------------------
 
 function resolveSources(input: string): { diary?: string; watchlist?: string } {
 	const stat = fs.statSync(input);
@@ -186,44 +198,11 @@ function resolveSources(input: string): { diary?: string; watchlist?: string } {
 	process.exit(1);
 }
 
-// ---------- Row builders ---------------------------------------------------
-
-function diaryRow(raw: Record<string, string>): ImportRow {
-	const title = raw["Name"]?.trim() ?? "";
-	const year  = raw["Year"] ? parseInt(raw["Year"], 10) : null;
-	const ratingRaw = raw["Rating"]?.trim();
-	return {
-		title,
-		year:        Number.isFinite(year) ? year : null,
-		uri:         raw["Letterboxd URI"]?.trim() || null,
-		rating:      ratingRaw ? (RATING_MAP[ratingRaw] ?? null) : null,
-		rewatch:     (raw["Rewatch"] ?? "").trim().toLowerCase() === "yes",
-		watchedDate: raw["Watched Date"]?.trim() || null,
-		loggedDate:  raw["Date"]?.trim() || null,
-		tags:        raw["Tags"]?.trim() || null,
-		status:      "Watched",
-	};
-}
-
-function watchlistRow(raw: Record<string, string>): ImportRow {
-	const title = raw["Name"]?.trim() ?? "";
-	const year  = raw["Year"] ? parseInt(raw["Year"], 10) : null;
-	return {
-		title,
-		year:        Number.isFinite(year) ? year : null,
-		uri:         raw["Letterboxd URI"]?.trim() || null,
-		rating:      null,
-		rewatch:     false,
-		watchedDate: null,
-		loggedDate:  raw["Date"]?.trim() || null,
-		tags:        null,
-		status:      "Watchlist",
-	};
-}
-
 // ---------- Main -----------------------------------------------------------
 
 async function main() {
+	const dataSourceId = await resolveDataSourceId(notion, databaseId);
+
 	const { diary, watchlist } = resolveSources(INPUT_PATH);
 	if (!diary && !watchlist) {
 		console.error(`No diary.csv or watchlist.csv found in ${INPUT_PATH}`);
@@ -231,7 +210,7 @@ async function main() {
 	}
 
 	console.log(`Reading existing pages from Notion…`);
-	const existing = await readExistingKeys();
+	const existing = await readExistingKeys(dataSourceId);
 	console.log(`  ${existing.size} pages already in the database`);
 
 	const rows: ImportRow[] = [];

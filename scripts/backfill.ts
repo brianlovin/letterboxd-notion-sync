@@ -18,14 +18,8 @@
  * registration required.
  */
 
-import { Client } from "@notionhq/client";
-
-const NOTION_VERSION = "2025-09-03";
-
-// Multi-select cardinality caps. Cast and Studio have long tails on
-// blockbusters; capping keeps option lists usable in Notion's filter UI.
-const CAST_TOP_N   = 5;
-const STUDIO_TOP_N = 3;
+import { notionClient, requireEnv, resolveDataSourceId } from "./lib";
+import { parseFilmPage, sanitizeOptionName, type FilmMeta } from "../src/letterboxd";
 
 const HTML_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 const LETTERBOXD_RPS = 5;
@@ -48,14 +42,10 @@ const ORDER   = (args.get("order") as string) ?? "recent";
 const DRY_RUN = args.has("dry-run");
 const FORCE   = args.has("force");
 
-// ---------- Env ------------------------------------------------------------
+// ---------- Client + IDs ---------------------------------------------------
 
-const token        = process.env.NOTION_API_TOKEN;
-const dataSourceId = process.env.FILMS_DATA_SOURCE_ID;
-if (!token)        { console.error("Set NOTION_API_TOKEN");        process.exit(1); }
-if (!dataSourceId) { console.error("Set FILMS_DATA_SOURCE_ID");    process.exit(1); }
-
-const notion = new Client({ auth: token, notionVersion: NOTION_VERSION });
+const notion     = notionClient();
+const databaseId = requireEnv("FILMS_DATABASE_ID");
 
 // ---------- Rate limiter ---------------------------------------------------
 
@@ -75,114 +65,22 @@ class Pacer {
 }
 const pacer = new Pacer(LETTERBOXD_RPS);
 
-// ---------- Letterboxd scraping --------------------------------------------
+// ---------- Letterboxd fetch ----------------------------------------------
 
-interface FilmMeta {
-	directors:    string[];
-	cast:         string[];
-	genres:       string[];
-	countries:    string[];
-	studios:      string[];
-	runtimeMins:  number | null;
-	rating:       number | null;
-	ratingCount:  number | null;
-	tagline:      string | null;
-	plot:         string | null;
-	imdbUrl:      string | null;
-	tmdbUrl:      string | null;
-	filmId:       string | null;
-	canonicalUrl: string;
-}
-
-function decodeXmlEntities(s: string): string {
-	return s
-		.replace(/&amp;/g,  "&")
-		.replace(/&lt;/g,   "<")
-		.replace(/&gt;/g,   ">")
-		.replace(/&quot;/g, '"')
-		.replace(/&apos;/g, "'")
-		.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n))
-		.replace(/&nbsp;/g,  " ");
-}
-
-async function fetchFilm(url: string): Promise<{ html: string; finalUrl: string }> {
+async function fetchFilm(url: string): Promise<string> {
 	await pacer.wait();
 	const r = await fetch(url, {
 		headers:  { "User-Agent": HTML_UA, "Accept": "text/html" },
 		redirect: "follow",
 	});
 	if (!r.ok) throw new Error(`GET ${url} → ${r.status}`);
-	return { html: await r.text(), finalUrl: r.url };
-}
-
-// Letterboxd wraps the JSON-LD payload like:
-//   <script type="application/ld+json">
-//   /* <![CDATA[ */
-//   {...}
-//   /* ]]> */
-//   </script>
-// We extract just the {...} payload — the easiest way to handle nested
-// braces without writing a more elaborate state machine.
-function extractJsonLd(html: string): any | null {
-	const block = /<script type="application\/ld\+json">[^]*?<\/script>/.exec(html);
-	if (!block) return null;
-	const start = block[0].indexOf("{");
-	const end   = block[0].lastIndexOf("}");
-	if (start < 0 || end < start) return null;
-	try { return JSON.parse(block[0].slice(start, end + 1)); }
-	catch { return null; }
-}
-
-function parseFilm(html: string, finalUrl: string): FilmMeta {
-	const json = extractJsonLd(html) ?? {};
-
-	const directors: string[] = (json.director ?? []).map((d: any) => d.name).filter(Boolean);
-	const cast:      string[] = ((json.actors ?? []) as any[]).slice(0, CAST_TOP_N).map((a) => a.name).filter(Boolean);
-	const genres:    string[] = (json.genre ?? []).filter(Boolean);
-	const countries: string[] = (json.countryOfOrigin ?? []).map((c: any) => c.name).filter(Boolean);
-	const studios:   string[] = ((json.productionCompany ?? []) as any[]).slice(0, STUDIO_TOP_N).map((s) => s.name).filter(Boolean);
-
-	const rating      = typeof json.aggregateRating?.ratingValue === "number" ? json.aggregateRating.ratingValue : null;
-	const ratingCount = typeof json.aggregateRating?.ratingCount === "number" ? json.aggregateRating.ratingCount : null;
-
-	// Footer paragraph: "162&nbsp;mins &nbsp; More at <a ...IMDb...> <a ...TMDB...>"
-	const footer       = /class="text-link text-footer"[^>]*>([^]*?)<\/p>/.exec(html)?.[1] ?? "";
-	const runtimeM     = /(\d+)\s*(?:&nbsp;|\s)mins?/.exec(footer);
-	const runtimeMins  = runtimeM ? parseInt(runtimeM[1], 10) : null;
-	const imdbM        = /imdb\.com\/title\/(tt\d+)/.exec(footer);
-	const tmdbM        = /themoviedb\.org\/movie\/(\d+)/.exec(footer);
-	const imdbUrl      = imdbM ? `https://www.imdb.com/title/${imdbM[1]}/` : null;
-	const tmdbUrl      = tmdbM ? `https://www.themoviedb.org/movie/${tmdbM[1]}/` : null;
-
-	// Letterboxd's internal film ID lives in the report-form URL.
-	const filmIdM = /\/ajax\/(film:\d+)\//.exec(html);
-	const filmId  = filmIdM ? filmIdM[1] : null;
-
-	const taglineM = /<h4 class="tagline">([^<]+)<\/h4>/.exec(html);
-	const tagline  = taglineM ? decodeXmlEntities(taglineM[1]).trim() : null;
-
-	const descM = /<meta name="description" content="([^"]+)"/.exec(html);
-	const plot  = descM ? decodeXmlEntities(descM[1]).trim() : null;
-
-	return {
-		directors, cast, genres, countries, studios,
-		runtimeMins, rating, ratingCount, tagline, plot,
-		imdbUrl, tmdbUrl, filmId,
-		canonicalUrl: finalUrl,
-	};
+	return r.text();
 }
 
 // ---------- Notion property builders --------------------------------------
 
 function richText(s: string | null) {
 	return s ? { rich_text: [{ type: "text", text: { content: s.slice(0, 2000) } }] } : { rich_text: [] };
-}
-
-// Notion multi-select option names can't contain commas. The natural
-// affected cases are names like "Tyler, The Creator" or "Foo Co., Ltd." —
-// dropping the comma reads cleanly in both.
-function sanitizeOptionName(name: string): string {
-	return name.replace(/,/g, "").replace(/\s+/g, " ").trim().slice(0, 100);
 }
 
 function multiSelect(values: string[]) {
@@ -225,7 +123,7 @@ interface FilmPage {
 	directorAlreadySet: boolean;
 }
 
-async function* iterPages(): AsyncGenerator<FilmPage> {
+async function* iterPages(dataSourceId: string): AsyncGenerator<FilmPage> {
 	let cursor: string | undefined;
 	const sortDirection = ORDER === "oldest" ? "ascending" : "descending";
 	while (true) {
@@ -254,10 +152,12 @@ async function* iterPages(): AsyncGenerator<FilmPage> {
 // ---------- Main -----------------------------------------------------------
 
 async function main() {
+	const dataSourceId = await resolveDataSourceId(notion, databaseId);
+
 	let scanned = 0, skipped = 0, enriched = 0, failed = 0;
 	const errors: string[] = [];
 
-	for await (const page of iterPages()) {
+	for await (const page of iterPages(dataSourceId)) {
 		if (scanned >= LIMIT) break;
 		scanned++;
 
@@ -269,8 +169,8 @@ async function main() {
 		}
 
 		try {
-			const { html, finalUrl } = await fetchFilm(page.uri);
-			const meta   = parseFilm(html, finalUrl);
+			const html   = await fetchFilm(page.uri);
+			const meta   = parseFilmPage(html);
 			const update = buildUpdate(meta);
 
 			const dirStr   = meta.directors.join(", ") || "?";
