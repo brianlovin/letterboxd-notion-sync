@@ -87,6 +87,40 @@ export function watchlistRow(raw: Record<string, string>): ImportRow {
 	};
 }
 
+// watched.csv is Letterboxd's full "I have seen this" list. It only has
+// Date / Name / Year / Letterboxd URI — no rating, no watched date. We
+// merge in ratings from ratings.csv (if present) before writing.
+export function watchedRow(raw: Record<string, string>): ImportRow {
+	const title = raw["Name"]?.trim() ?? "";
+	const year  = raw["Year"] ? parseInt(raw["Year"], 10) : null;
+	return {
+		title,
+		year:        Number.isFinite(year) ? year : null,
+		uri:         raw["Letterboxd URI"]?.trim() || null,
+		rating:      null,
+		rewatch:     false,
+		watchedDate: null,
+		loggedDate:  raw["Date"]?.trim() || null,
+		tags:        null,
+		status:      "Watched",
+	};
+}
+
+// Build a (title, year) → star-rating lookup from ratings.csv rows.
+export function buildRatingsMap(rows: Record<string, string>[]): Map<string, string> {
+	const map = new Map<string, string>();
+	for (const r of rows) {
+		const title = r["Name"]?.trim();
+		const year  = r["Year"]?.trim();
+		const raw   = r["Rating"]?.trim();
+		if (!title || !raw) continue;
+		const star = STAR_RATING_MAP[raw];
+		if (!star) continue;
+		map.set(`${title}|${year ?? ""}`, star);
+	}
+	return map;
+}
+
 export function buildProperties(r: ImportRow) {
 	const props: Record<string, any> = {
 		Title:  { title: [{ text: { content: r.title } }] },

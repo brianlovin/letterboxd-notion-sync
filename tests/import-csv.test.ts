@@ -3,7 +3,14 @@ import * as assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { parseCsv, parseCsvLine, diaryRow, watchlistRow } from "../scripts/csv";
+import {
+	parseCsv,
+	parseCsvLine,
+	diaryRow,
+	watchedRow,
+	watchlistRow,
+	buildRatingsMap,
+} from "../scripts/csv";
 
 const fixturesDir = path.join(process.cwd(), "tests", "fixtures");
 const fixture = (name: string) => fs.readFileSync(path.join(fixturesDir, name), "utf8");
@@ -69,4 +76,23 @@ test("watchlistRow handles missing year", () => {
 	const row = watchlistRow({ Date: "", Name: "Untitled", Year: "", "Letterboxd URI": "" });
 	assert.equal(row.year, null);
 	assert.equal(row.uri,  null);
+});
+
+test("watchedRow gives Status=Watched with no rating/watched date", () => {
+	const rows = parseCsv(fixture("watched.csv")).map(watchedRow);
+	assert.equal(rows.length, 3);
+	assert.equal(rows[0].title,       "Whiplash");
+	assert.equal(rows[0].year,        2014);
+	assert.equal(rows[0].status,      "Watched");
+	assert.equal(rows[0].rating,      null);
+	assert.equal(rows[0].watchedDate, null);
+	assert.equal(rows[0].loggedDate,  "2024-05-12");
+});
+
+test("buildRatingsMap turns ratings.csv into a (title|year) → star map", () => {
+	const map = buildRatingsMap(parseCsv(fixture("ratings.csv")));
+	// "not-a-number" Rating is silently dropped
+	assert.equal(map.size, 2);
+	assert.equal(map.get("Whiplash|2014"),          "★★★★★");
+	assert.equal(map.get("Mad Max: Fury Road|2015"), "★★★★½");
 });

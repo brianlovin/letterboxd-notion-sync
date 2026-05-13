@@ -28,7 +28,9 @@ import { notionClient, requireEnv, resolveDataSourceId } from "./lib";
 import {
 	parseCsv,
 	diaryRow,
+	watchedRow,
 	watchlistRow,
+	buildRatingsMap,
 	buildProperties,
 	type ImportRow,
 } from "./csv";
@@ -86,20 +88,32 @@ async function readExistingKeys(dataSourceId: string): Promise<Set<string>> {
 
 // ---------- Source resolution ---------------------------------------------
 
-function resolveSources(input: string): { diary?: string; watchlist?: string } {
+interface Sources {
+	diary?:     string;
+	watched?:   string;
+	watchlist?: string;
+	ratings?:   string;
+}
+
+function resolveSources(input: string): Sources {
 	const stat = fs.statSync(input);
 	if (stat.isDirectory()) {
-		const diary     = path.join(input, "diary.csv");
-		const watchlist = path.join(input, "watchlist.csv");
+		const find = (n: string) => {
+			const p = path.join(input, n);
+			return fs.existsSync(p) ? p : undefined;
+		};
 		return {
-			diary:     fs.existsSync(diary)     ? diary     : undefined,
-			watchlist: fs.existsSync(watchlist) ? watchlist : undefined,
+			diary:     find("diary.csv"),
+			watched:   find("watched.csv"),
+			watchlist: find("watchlist.csv"),
+			ratings:   find("ratings.csv"),
 		};
 	}
 	const name = path.basename(input).toLowerCase();
-	if (name.includes("diary"))     return { diary: input };
+	if (name.includes("diary"))     return { diary:     input };
 	if (name.includes("watchlist")) return { watchlist: input };
-	console.error(`Couldn't infer CSV type from "${name}" (expected "diary" or "watchlist" in the filename).`);
+	if (name.includes("watched"))   return { watched:   input };
+	console.error(`Couldn't infer CSV type from "${name}" (expected "diary", "watched", or "watchlist").`);
 	process.exit(1);
 }
 
@@ -108,9 +122,9 @@ function resolveSources(input: string): { diary?: string; watchlist?: string } {
 async function main() {
 	const dataSourceId = await resolveDataSourceId(notion, databaseId);
 
-	const { diary, watchlist } = resolveSources(INPUT_PATH);
-	if (!diary && !watchlist) {
-		console.error(`No diary.csv or watchlist.csv found in ${INPUT_PATH}`);
+	const { diary, watched, watchlist, ratings } = resolveSources(INPUT_PATH);
+	if (!diary && !watched && !watchlist) {
+		console.error(`No diary.csv, watched.csv, or watchlist.csv found in ${INPUT_PATH}`);
 		process.exit(1);
 	}
 
@@ -118,10 +132,34 @@ async function main() {
 	const existing = await readExistingKeys(dataSourceId);
 	console.log(`  ${existing.size} pages already in the database`);
 
+	// Build a ratings overlay first. Users who use Letterboxd as a "watched
+	// list" rather than a "diary" usually rate films via the rate-on-hover
+	// UI — those land in ratings.csv but not in diary.csv.
+	const ratingsMap = ratings
+		? buildRatingsMap(parseCsv(fs.readFileSync(ratings, "utf8")))
+		: new Map<string, string>();
+	if (ratings) console.log(`  ratings.csv:   ${ratingsMap.size} ratings (overlaid onto watched entries)`);
+
+	// Order matters for dedup: diary has the most metadata (rating, watched
+	// date, rewatch, tags). watched is next (just URI + logged date).
+	// watchlist last (separate Status, only films not already imported).
 	const rows: ImportRow[] = [];
 	if (diary) {
 		const parsed = parseCsv(fs.readFileSync(diary, "utf8")).map(diaryRow);
 		console.log(`  diary.csv:     ${parsed.length} rows`);
+		rows.push(...parsed);
+	}
+	if (watched) {
+		const parsed = parseCsv(fs.readFileSync(watched, "utf8")).map(watchedRow);
+		// Apply ratings overlay so watched entries without a diary record
+		// still get their rating.
+		for (const r of parsed) {
+			if (!r.rating) {
+				const star = ratingsMap.get(`${r.title}|${r.year ?? ""}`);
+				if (star) r.rating = star;
+			}
+		}
+		console.log(`  watched.csv:   ${parsed.length} rows`);
 		rows.push(...parsed);
 	}
 	if (watchlist) {

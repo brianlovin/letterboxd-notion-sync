@@ -19,7 +19,7 @@
  */
 
 import { notionClient, requireEnv, resolveDataSourceId } from "./lib";
-import { parseFilmPage, sanitizeOptionName, type FilmMeta } from "../src/letterboxd";
+import { parseFilmPage, extractOgImage, sanitizeOptionName, type FilmMeta } from "../src/letterboxd";
 
 const HTML_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 const LETTERBOXD_RPS = 5;
@@ -121,6 +121,7 @@ interface FilmPage {
 	year: number | null;
 	uri: string | null;
 	directorAlreadySet: boolean;
+	hasCover: boolean;
 }
 
 async function* iterPages(dataSourceId: string): AsyncGenerator<FilmPage> {
@@ -142,7 +143,8 @@ async function* iterPages(dataSourceId: string): AsyncGenerator<FilmPage> {
 			const year  = props.Year?.number ?? null;
 			const uri   = props["Letterboxd URI"]?.url ?? null;
 			const directorAlreadySet = (props.Director?.multi_select?.length ?? 0) > 0;
-			yield { id: p.id, title, year, uri, directorAlreadySet };
+			const hasCover = Boolean(p.cover);
+			yield { id: p.id, title, year, uri, directorAlreadySet, hasCover };
 		}
 		if (!r.has_more) break;
 		cursor = r.next_cursor;
@@ -172,6 +174,15 @@ async function main() {
 			const html   = await fetchFilm(page.uri);
 			const meta   = parseFilmPage(html);
 			const update = buildUpdate(meta);
+			// Use the film page's og:image as the page cover when one isn't
+			// already set. CSV-imported pages start without a cover; the
+			// worker only sets it on initial create, so backfill has to fill
+			// the gap.
+			const poster = extractOgImage(html);
+			const body: any = { properties: update };
+			if (poster && !page.hasCover) {
+				body.cover = { type: "external", external: { url: poster } };
+			}
 
 			const dirStr   = meta.directors.join(", ") || "?";
 			const genreStr = meta.genres.join("/")     || "?";
@@ -181,7 +192,7 @@ async function main() {
 				await notion.request({
 					path:   `pages/${page.id}`,
 					method: "patch",
-					body:   { properties: update },
+					body,
 				});
 			}
 			enriched++;
