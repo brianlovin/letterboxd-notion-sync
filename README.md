@@ -27,6 +27,9 @@ The hourly sync only sees ~50 recent diary entries. To import everything you've 
 ```bash
 # Export at https://letterboxd.com/settings/data/, unzip, then:
 npm run import-csv -- ~/Downloads/NAME_OF_ZIP_EXPORT
+```
+
+```bash
 npm run backfill   # adds posters + metadata
 ```
 
