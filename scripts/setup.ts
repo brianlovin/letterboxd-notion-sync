@@ -53,40 +53,6 @@ async function prompt(rl: readline.Interface, question: string, fallback?: strin
 	return answer || fallback || "";
 }
 
-async function promptHidden(rl: readline.Interface, question: string): Promise<string> {
-	// Best-effort masking: turn off terminal echo while the user types. Falls
-	// back to plain readline if the terminal doesn't support raw mode.
-	const stdin = process.stdin as any;
-	if (!stdin.isTTY || typeof stdin.setRawMode !== "function") {
-		return prompt(rl, question);
-	}
-	process.stdout.write(`  ${question}: `);
-	return new Promise((resolve) => {
-		const chars: string[] = [];
-		stdin.setRawMode(true);
-		stdin.resume();
-		const onData = (key: Buffer) => {
-			const ch = key.toString("utf8");
-			if (ch === "\n" || ch === "\r" || ch === "") {
-				stdin.setRawMode(false);
-				stdin.removeListener("data", onData);
-				stdin.pause();
-				process.stdout.write("\n");
-				resolve(chars.join("").trim());
-			} else if (ch === "") {           // Ctrl-C
-				process.stdout.write("\n");
-				process.exit(130);
-			} else if (ch === "" || ch === "\b") {  // backspace
-				if (chars.length) { chars.pop(); process.stdout.write("\b \b"); }
-			} else {
-				chars.push(ch);
-				process.stdout.write("•");
-			}
-		};
-		stdin.on("data", onData);
-	});
-}
-
 // ---------- ntn shell-out helpers -----------------------------------------
 
 function hasNtn(): boolean {
@@ -173,7 +139,7 @@ async function main() {
 	console.log(C.dim(`  https://notion.so/developers/tokens → New personal access token`));
 	console.log(C.dim(`  → tick Notion API + Workers → Create → copy`));
 	let token = existing.NOTION_API_TOKEN ?? "";
-	if (!token) token = await promptHidden(rl, "Token");
+	if (!token) token = await prompt(rl, "Token");
 	if (!token.startsWith("ntn_")) bail(`Token doesn't look right — should start with "ntn_".`);
 
 	const notion = new Client({ auth: token, notionVersion: NOTION_VERSION });
@@ -323,7 +289,7 @@ async function main() {
 		}
 		runNtn(["workers", "env", "push"]);
 		runNtn(["workers", "deploy"]);
-		ok(`Worker deployed (runs hourly)`);
+		ok(`Worker deployed (runs daily)`);
 
 		// Kick off the first sync immediately so the database starts filling
 		// up while the user is reading the "done" message. spawnSync waits;

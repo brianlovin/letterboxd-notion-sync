@@ -3,7 +3,7 @@
 		"target": "ES2020",
 		"module": "nodenext",
 		"outDir": "./dist",
-		"rootDir": ".",
+		"rootDir": "./src",
 		"strict": true,
 		"esModuleInterop": true,
 		"skipLibCheck": true,
@@ -11,6 +11,6 @@
 		"resolveJsonModule": true,
 		"moduleResolution": "nodenext"
 	},
-	"include": ["src/**/*", "scripts/**/*", "tests/**/*"],
+	"include": ["src/**/*"],
 	"exclude": ["node_modules", "dist"]
 }

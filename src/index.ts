@@ -1,7 +1,7 @@
 /**
  * Letterboxd → Notion sync.
  *
- * Hourly worker that pulls your Letterboxd diary RSS and watchlist HTML,
+ * Daily worker that pulls your Letterboxd diary RSS and watchlist HTML,
  * then writes new entries into your Films database with poster covers.
  *
  * Architecture
@@ -33,16 +33,20 @@ import {
 
 // ---------- Config ---------------------------------------------------------
 
-function requireEnv(name: string): string {
-	const v = process.env[name];
-	if (!v) throw new Error(
-		`Missing ${name}. Set it with: ntn workers env set ${name}=...`,
-	);
-	return v;
-}
+// Read at module load but tolerate missing values — Notion's capability
+// introspection runs this module without env injected. We assert at execute
+// time instead, so a misconfigured worker fails loudly into the audit log
+// rather than silently breaking the deploy.
+const LETTERBOXD_USER   = process.env.LETTERBOXD_USER   ?? "";
+const FILMS_DATABASE_ID = process.env.FILMS_DATABASE_ID ?? "";
 
-const LETTERBOXD_USER   = requireEnv("LETTERBOXD_USER");
-const FILMS_DATABASE_ID = requireEnv("FILMS_DATABASE_ID");
+function assertEnv() {
+	const missing = (["LETTERBOXD_USER", "FILMS_DATABASE_ID"] as const)
+		.filter(n => !process.env[n]);
+	if (missing.length) throw new Error(
+		`Missing env: ${missing.join(", ")}. Set with: ntn workers env set <KEY>=<VALUE>`,
+	);
+}
 
 const worker = new Worker();
 export default worker;
@@ -190,12 +194,18 @@ function truncate(s: string, n = 80): string {
 worker.sync("letterboxdSync", {
 	database: syncRuns,
 	mode:     "incremental",
-	schedule: "1h",
+	schedule: "1d",
 	execute:  async (_state, { notion }) => {
 		const started = new Date();
 		const runId   = `run-${started.toISOString().replace(/[:.]/g, "-")}`;
 		let added = 0, updated = 0, errors = 0;
 		const notes: string[] = [];
+
+		try { assertEnv(); } catch (e: any) {
+			errors++;
+			notes.push(e.message);
+			return logRun(runId, started, added, updated, errors, notes);
+		}
 
 		// 1. Read existing films so we can dedupe by (title, year).
 		let existing: Map<string, ExistingEntry>;

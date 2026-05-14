@@ -11,7 +11,7 @@ Run `RUN_E2E=1 npm run test:e2e` after — the schema test verifies every proper
 
 ## Change the sync schedule
 
-`src/index.ts` → `schedule: "1h"`. Valid: `5m`, `15m`, `30m`, `1h`, `1d`, ... up to `7d`. Run `ntn workers deploy` after.
+`src/index.ts` → `schedule: "1d"`. Valid: `5m`, `15m`, `30m`, `1h`, `1d`, ... up to `7d`. Run `ntn workers deploy` after.
 
 ## Debug a stuck sync
 

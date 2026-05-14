@@ -26,7 +26,7 @@ Setup asks for a Notion [Personal Access Token](https://www.notion.so/developers
 
 ### Bring in your history (optional)
 
-The hourly sync only sees ~50 recent diary entries. To import everything you've ever logged:
+The daily sync only sees ~50 recent diary entries. To import everything you've ever logged:
 
 ```bash
 # Export at https://letterboxd.com/settings/data/, unzip, then:
@@ -45,7 +45,7 @@ ntn workers sync status                   # health check
 ntn workers runs list                     # recent runs
 ```
 
-Edit `schedule: "1h"` in `src/index.ts` (valid `5m` … `7d`) and run `ntn workers deploy` to change the cadence.
+Edit `schedule: "1d"` in `src/index.ts` (valid `5m` … `7d`) and run `ntn workers deploy` to change the cadence.
 
 ## License
 

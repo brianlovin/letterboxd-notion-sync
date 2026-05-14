@@ -2,13 +2,13 @@
 	"name": "letterboxd-notion-sync",
 	"version": "0.1.0",
 	"private": true,
-	"description": "Sync your Letterboxd diary and watchlist into a Notion database, hourly, with poster covers and rich metadata.",
+	"description": "Sync your Letterboxd diary and watchlist into a Notion database, daily, with poster covers and rich metadata.",
 	"scripts": {
 		"build": "tsc",
-		"check": "tsc --noEmit",
+		"check": "tsc -p tsconfig.check.json",
 		"test": "tsx --test tests/*.test.ts",
 		"test:e2e": "tsx --env-file-if-exists=.env --test tests/e2e.test.ts",
-		"setup": "tsx scripts/setup.ts",
+		"setup": "NODE_OPTIONS=--disable-warning=DEP0040 tsx scripts/setup.ts",
 		"backfill": "tsx --env-file-if-exists=.env scripts/backfill.ts",
 		"import-csv": "tsx --env-file-if-exists=.env scripts/import-csv.ts",
 		"add-properties": "tsx --env-file-if-exists=.env scripts/add-properties.ts"
