@@ -287,8 +287,13 @@ async function main() {
 		if (!fs.existsSync("workers.json")) {
 			runNtn(["workers", "create", "--name", "letterboxd-notion-sync"]);
 		}
-		runNtn(["workers", "env", "push"]);
+		// Deploy first so the worker's capability descriptor declares which
+		// env keys it reads — `env push` validates against that descriptor
+		// and rejects keys the deployed code doesn't reference. The worker
+		// tolerates missing env at module load (assertEnv fires inside the
+		// sync execute, not at import).
 		runNtn(["workers", "deploy"]);
+		runNtn(["workers", "env", "push", "--yes"]);
 		ok(`Worker deployed (runs daily)`);
 
 		// Kick off the first sync immediately so the database starts filling
