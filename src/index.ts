@@ -27,9 +27,12 @@ import {
 	parseWatchlistHtml,
 	nextWatchlistPagePath,
 	extractOgImage,
+	parseFilmPage,
 	type DiaryEntry,
 	type WatchlistEntry,
+	type FilmMeta,
 } from "./letterboxd.js";
+import { buildMetaProps } from "./film-props.js";
 
 // ---------- Config ---------------------------------------------------------
 
@@ -123,17 +126,30 @@ async function fetchLetterboxdHtml(path: string): Promise<string> {
 	return r.text();
 }
 
-async function resolveFilmPoster(slug: string): Promise<string | null> {
+// Fetches the canonical film page and returns the og:image cover URL plus
+// parsed metadata (director, cast, genres, runtime, IMDb/TMDB IDs, ...).
+// Returns nulls on any failure — a single film's enrichment failing shouldn't
+// block adding the film with basic info.
+async function fetchFilmPage(slug: string): Promise<{ poster: string | null; meta: FilmMeta | null }> {
 	try {
 		await letterboxd.wait();
 		const r = await fetch(`https://letterboxd.com/film/${slug}/`, {
 			headers: { "User-Agent": HTML_UA, "Accept": "text/html" },
 		});
-		if (!r.ok) return null;
-		return extractOgImage(await r.text());
+		if (!r.ok) return { poster: null, meta: null };
+		const html = await r.text();
+		return { poster: extractOgImage(html), meta: parseFilmPage(html) };
 	} catch {
-		return null;
+		return { poster: null, meta: null };
 	}
+}
+
+// Diary RSS links look like https://letterboxd.com/USER/film/SLUG/... — strip
+// the slug so we can hit the canonical /film/SLUG/ page. Older entries use
+// boxd.it/... shortlinks; for those we skip enrichment.
+function slugFromDiaryUrl(url: string): string | null {
+	const m = /\/film\/([^/?#]+)/.exec(url);
+	return m ? m[1] : null;
 }
 
 // ---------- Notion database read ------------------------------------------
@@ -227,11 +243,19 @@ worker.sync("letterboxdSync", {
 				const ex  = existing.get(key);
 				try {
 					if (!ex) {
+						const slug = slugFromDiaryUrl(e.url);
+						const { poster, meta } = slug ? await fetchFilmPage(slug) : { poster: null, meta: null };
+						const properties = meta
+							? { ...buildCreateProps(e, "Watched"), ...buildMetaProps(meta) }
+							: buildCreateProps(e, "Watched");
 						const params: any = {
 							parent: { database_id: FILMS_DATABASE_ID },
-							properties: buildCreateProps(e, "Watched"),
+							properties,
 						};
-						if (e.poster) params.cover = { type: "external", external: { url: e.poster } };
+						// RSS poster wins (it's the user's own watched-poster); fall back to
+						// the film page's og:image when RSS didn't include one.
+						const cover = e.poster ?? poster;
+						if (cover) params.cover = { type: "external", external: { url: cover } };
 						await notion.pages.create(params);
 						added++;
 					} else if (ex.status === "Watchlist") {
@@ -282,10 +306,13 @@ worker.sync("letterboxdSync", {
 				const key = `${e.title}|${e.year ?? ""}`;
 				if (existing.has(key)) continue;
 				try {
-					const poster = await resolveFilmPoster(e.slug);
+					const { poster, meta } = await fetchFilmPage(e.slug);
+					const properties = meta
+						? { ...buildCreateProps(e, "Watchlist"), ...buildMetaProps(meta) }
+						: buildCreateProps(e, "Watchlist");
 					const params: any = {
 						parent: { database_id: FILMS_DATABASE_ID },
-						properties: buildCreateProps(e, "Watchlist"),
+						properties,
 					};
 					if (poster) params.cover = { type: "external", external: { url: poster } };
 					await notion.pages.create(params);

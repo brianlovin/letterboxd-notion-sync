@@ -19,7 +19,8 @@
  */
 
 import { notionClient, requireEnv, resolveDataSourceId } from "./lib";
-import { parseFilmPage, extractOgImage, sanitizeOptionName, type FilmMeta } from "../src/letterboxd";
+import { parseFilmPage, extractOgImage } from "../src/letterboxd";
+import { buildMetaProps } from "../src/film-props";
 
 const HTML_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 const LETTERBOXD_RPS = 5;
@@ -75,42 +76,6 @@ async function fetchFilm(url: string): Promise<string> {
 	});
 	if (!r.ok) throw new Error(`GET ${url} → ${r.status}`);
 	return r.text();
-}
-
-// ---------- Notion property builders --------------------------------------
-
-function richText(s: string | null) {
-	return s ? { rich_text: [{ type: "text", text: { content: s.slice(0, 2000) } }] } : { rich_text: [] };
-}
-
-function multiSelect(values: string[]) {
-	return {
-		multi_select: values
-			.map(sanitizeOptionName)
-			.filter((v) => v.length > 0)
-			.map((name) => ({ name })),
-	};
-}
-
-function numberProp(n: number | null) { return { number: n }; }
-function urlProp(u: string | null)    { return { url: u }; }
-
-function buildUpdate(m: FilmMeta) {
-	return {
-		Director:             multiSelect(m.directors),
-		Cast:                 multiSelect(m.cast),
-		Genres:               multiSelect(m.genres),
-		Country:              multiSelect(m.countries),
-		Studio:               multiSelect(m.studios),
-		"Runtime minutes":    numberProp(m.runtimeMins),
-		"Letterboxd Rating":  numberProp(m.rating !== null ? Math.round(m.rating * 100) / 100 : null),
-		"Rating Count":       numberProp(m.ratingCount),
-		Tagline:              richText(m.tagline),
-		Plot:                 richText(m.plot),
-		IMDb:                 urlProp(m.imdbUrl),
-		TMDB:                 urlProp(m.tmdbUrl),
-		"Letterboxd Film ID": richText(m.filmId),
-	};
 }
 
 // ---------- Page iteration -------------------------------------------------
@@ -173,7 +138,7 @@ async function main() {
 		try {
 			const html   = await fetchFilm(page.uri);
 			const meta   = parseFilmPage(html);
-			const update = buildUpdate(meta);
+			const update = buildMetaProps(meta);
 			// Use the film page's og:image as the page cover when one isn't
 			// already set. CSV-imported pages start without a cover; the
 			// worker only sets it on initial create, so backfill has to fill
